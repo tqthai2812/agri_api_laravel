@@ -1,8 +1,9 @@
 <?php
 
-namespace App\Http\Controllers\API\V1;
+namespace App\Http\Controllers\Admin\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\Product\ProductStoreRequest;
 use Illuminate\Http\Request;
 use App\Services\ProductService;
 
@@ -20,13 +21,13 @@ class ProductController extends Controller
 
     public function index()
     {
-        //
+        return [];
     }
 
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(ProductStoreRequest $request)
     {
         try {
             // Lấy dữ liệu đã validate
