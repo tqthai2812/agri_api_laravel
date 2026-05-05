@@ -20,22 +20,41 @@ class LoginController extends Controller
     {
         $request->authenticate();
 
+        if ($request->hasSession()) {
+            $request->session()->regenerate();
+            $request->session()->save();
+        }
+
         $user = $request->user();
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
+        $data = [
             'user' => $user,
-            'token' => $token,
-        ]);
+            'message' => 'Đăng nhập thành công',
+        ];
+
+        // Nếu bạn muốn dùng chung cho cả Mobile, hãy kiểm tra:
+        if ($request->has('device_name')) {
+            $data['token'] = $user->createToken($request->device_name)->plainTextToken;
+        }
+
+        return response()->json($data);
     }
 
     /**
      * Destroy an authenticated session.
      */
-    public function destroy(Request $request): Response
+    public function destroy(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
-        return response()->noContent();
+        // 1. Nếu đang dùng Token (Mobile), xóa token hiện tại
+        $user = $request->user();
+        if ($user->currentAccessToken()) {
+            $user->currentAccessToken()->delete();
+        }
+
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return response()->json(['message' => 'Đã đăng xuất thành công']);
     }
 }
