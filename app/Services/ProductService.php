@@ -2,148 +2,142 @@
 
 namespace App\Services;
 
-use App\Models\Product;
-use App\Models\ProductImage;
-use App\Models\ProductVariant;
-use App\Models\ProductPackage;
+use App\Contracts\Services\ProductServiceInterface;
+use App\Contracts\Repositories\ProductRepositoryInterface;
+use App\Contracts\Services\ImageUploadServiceInterface;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Exception;
 
-class ProductService
+class ProductService implements ProductServiceInterface
 {
-    /**
-     * Tạo sản phẩm + ảnh + variants + packages
-     *
-     * @param array $data Dữ liệu sản phẩm và variants
-     * @param array|null $imageFiles Mảng file ảnh upload (nếu có)
-     * @return Product
-     * @throws \Exception
-     */
-    public function createProduct(array $data, $imageFiles = null)
+    protected $productRepository;
+    protected $imageUploadService;
+
+    public function __construct(
+        ProductRepositoryInterface $productRepository,
+        ImageUploadServiceInterface $imageUploadService
+    ) {
+        $this->productRepository = $productRepository;
+        $this->imageUploadService = $imageUploadService;
+    }
+
+    public function listProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator
+    {
+        return $this->productRepository->getAll($filters, $perPage);
+    }
+
+    public function getProductDetail(int $id): ?object
+    {
+        return $this->productRepository->getProductWithRelations($id);
+    }
+
+    public function createProduct(array $data, array $imageFiles = []): object
     {
         DB::beginTransaction();
-
         try {
-            // 1. Tạo product
-            $product = Product::create([
-                'category_id'        => $data['category_id'],
-                'subcategory_id'     => $data['subcategory_id'] ?? null,
-                'origin_id'          => $data['origin_id'] ?? null,
-                'product_name'       => $data['product_name'],
-                'description'        => $data['description'] ?? null,
+            $productData = [
+                'category_id' => $data['category_id'],
+                'subcategory_id' => $data['subcategory_id'],
+                'origin_id' => $data['origin_id'],
+                'product_name' => $data['product_name'],
+                'description' => $data['description'] ?? null,
                 'usage_instructions' => $data['usage_instructions'] ?? null,
-                'safety_warning'     => $data['safety_warning'] ?? null,
-                'is_show'            => $data['is_show'] ?? true,
-            ]);
+                'safety_warning' => $data['safety_warning'] ?? null,
+                'is_show' => $data['is_show'] ?? true,
+            ];
+            $product = $this->productRepository->create($productData);
 
-            // 2. Xử lý ảnh (file upload hoặc URL)
-            if ($imageFiles) {
-                $this->saveImagesFromFiles($product, $imageFiles);
-            } elseif (!empty($data['images'])) {
-                $this->saveImagesFromUrls($product, $data['images']);
+            // Upload images
+            $imagePaths = [];
+            if (!empty($imageFiles)) {
+                foreach ($imageFiles as $file) {
+                    $path = $this->imageUploadService->upload($file, 'products');
+                    $imagePaths[] = $path;
+                }
             }
+            $primaryIndex = $data['primary_image_index'] ?? 0;
+            $this->productRepository->attachImages($product->id, $imagePaths, $primaryIndex);
 
-            // 3. Xử lý variants & packages
+            // Sync variants & packages
             if (!empty($data['variants'])) {
-                $this->saveVariantsAndPackages($product, $data['variants']);
+                $this->productRepository->syncVariantsAndPackages($product->id, $data['variants']);
             }
 
             DB::commit();
-
-            // Load quan hệ để trả về đầy đủ
-            $product->load(['images', 'variants.packages']);
-
-            return $product;
-        } catch (\Exception $e) {
+            return $product->fresh(['images', 'variants.packages']);
+        } catch (Exception $e) {
             DB::rollBack();
-            // Xoá ảnh đã upload nếu có lỗi
-            if (isset($product) && $product->images) {
-                foreach ($product->images as $img) {
-                    Storage::disk('public')->delete($img->image_url);
+            throw new Exception("Create product failed: " . $e->getMessage());
+        }
+    }
+
+    public function updateProduct(int $id, array $data, array $imageFiles = []): bool
+    {
+        DB::beginTransaction();
+        try {
+            $product = $this->productRepository->findById($id);
+            if (!$product) {
+                throw new Exception("Product not found");
+            }
+
+            // Update basic info
+            $updateData = array_intersect_key($data, array_flip([
+                'category_id',
+                'subcategory_id',
+                'origin_id',
+                'product_name',
+                'description',
+                'usage_instructions',
+                'safety_warning',
+                'is_show'
+            ]));
+            if (!empty($updateData)) {
+                $this->productRepository->update($id, $updateData);
+            }
+
+            // Replace images if requested
+            if (isset($data['replace_images']) && $data['replace_images'] === true && !empty($imageFiles)) {
+                $imagePaths = [];
+                foreach ($imageFiles as $file) {
+                    $path = $this->imageUploadService->upload($file, 'products');
+                    $imagePaths[] = $path;
                 }
+                $primaryIndex = $data['primary_image_index'] ?? 0;
+                $this->productRepository->attachImages($id, $imagePaths, $primaryIndex);
             }
-            throw $e;
-        }
-    }
 
-    /**
-     * Lưu ảnh từ file upload
-     */
-    private function saveImagesFromFiles(Product $product, array $imageFiles)
-    {
-        $sortOrder = 0;
-        foreach ($imageFiles as $index => $file) {
-            $path = $file->store('products', 'public');
-            ProductImage::create([
-                'product_id' => $product->id,
-                'image_url'  => $path,
-                'is_primary' => $index === 0,
-                'sort_order' => $sortOrder++,
-            ]);
-        }
-    }
-
-    /**
-     * Lưu ảnh từ URL (trường hợp gửi JSON)
-     */
-    private function saveImagesFromUrls(Product $product, array $imageUrls)
-    {
-        $sortOrder = 0;
-        foreach ($imageUrls as $index => $url) {
-            ProductImage::create([
-                'product_id' => $product->id,
-                'image_url'  => $url,
-                'is_primary' => $index === 0,
-                'sort_order' => $sortOrder++,
-            ]);
-        }
-    }
-
-    /**
-     * Lưu variants và packages
-     */
-    private function saveVariantsAndPackages(Product $product, array $variants)
-    {
-        foreach ($variants as $variantData) {
-            $variant = ProductVariant::create([
-                'product_id'   => $product->id,
-                'variant_name' => $variantData['variant_name'],
-            ]);
-
-            foreach ($variantData['packages'] as $packageData) {
-                $sku = $packageData['sku'] ?? $this->generateSku($product, $variant, $packageData);
-                ProductPackage::create([
-                    'variant_id'          => $variant->id,
-                    'sku'                 => $sku,
-                    'size'                => $packageData['size'],
-                    'unit'                => $packageData['unit'],
-                    'price'               => $packageData['price'],
-                    'quantity_available'  => $packageData['quantity_available'],
-                    'barcode'             => $packageData['barcode'] ?? null,
-                    'box_barcode'         => $packageData['box_barcode'] ?? null,
-                ]);
+            // Sync variants & packages if provided
+            if (isset($data['variants'])) {
+                $this->productRepository->syncVariantsAndPackages($id, $data['variants']);
             }
+
+            DB::commit();
+            return true;
+        } catch (Exception $e) {
+            DB::rollBack();
+            throw new Exception("Update product failed: " . $e->getMessage());
         }
     }
 
-    /**
-     * Tự sinh SKU nếu không được cung cấp
-     */
-    private function generateSku(Product $product, ProductVariant $variant, array $packageData)
+    public function deleteProduct(int $id): bool
     {
-        $size = $packageData['size'];
-        $unit = $packageData['unit'];
-        $random = strtoupper(Str::random(4));
-        return sprintf(
-            "SP_%d_%d_%s_%s_%s",
-            $product->id,
-            $variant->id,
-            $size,
-            $unit,
-            $random
-        );
+        DB::beginTransaction();
+        try {
+            $product = $this->productRepository->findById($id);
+            if (!$product) {
+                throw new Exception("Product not found");
+            }
+            // Delete physical images
+            foreach ($product->images as $img) {
+                $this->imageUploadService->delete($img->image_url);
+            }
+            $result = $this->productRepository->delete($id);
+            DB::commit();
+            return $result;
+        } catch (Exception $e) {
+            DB::rollBack();
+            throw new Exception("Delete product failed: " . $e->getMessage());
+        }
     }
-
-    // Có thể thêm các phương thức khác: updateProduct, deleteProduct, getDetail...
 }

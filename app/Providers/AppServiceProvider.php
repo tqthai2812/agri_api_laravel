@@ -6,6 +6,10 @@ use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\ServiceProvider;
 use App\Contracts\Services\ImageUploadServiceInterface;
 use App\Services\ImageUploadService;
+use App\Contracts\Repositories\ProductRepositoryInterface;
+use App\Repositories\ProductRepository;
+use App\Contracts\Services\ProductServiceInterface;
+use App\Services\ProductService;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -14,6 +18,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->bind(ProductRepositoryInterface::class, ProductRepository::class);
+        $this->app->bind(ProductServiceInterface::class, ProductService::class);
         $this->app->bind(ImageUploadServiceInterface::class, ImageUploadService::class);
     }
 

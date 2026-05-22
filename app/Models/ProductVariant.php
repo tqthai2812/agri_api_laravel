@@ -23,6 +23,6 @@ class ProductVariant extends Model
 
     public function packages(): HasMany
     {
-        return $this->hasMany(ProductPackage::class);
+        return $this->hasMany(ProductPackage::class, 'variant_id');
     }
 }

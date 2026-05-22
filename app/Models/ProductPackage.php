@@ -39,7 +39,7 @@ class ProductPackage extends Model
 
     public function variant(): BelongsTo
     {
-        return $this->belongsTo(ProductVariant::class);
+        return $this->belongsTo(ProductVariant::class, 'variant_id');
     }
 
     public function cartItems(): HasMany

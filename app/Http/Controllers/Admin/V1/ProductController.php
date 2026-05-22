@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers\Admin\V1;
 
+use App\Contracts\Services\ProductServiceInterface;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\Product\ProductStoreRequest;
+use App\Http\Requests\Admin\Product\StoreProductRequest;
+use App\Http\Requests\Admin\Product\UpdateProductRequest;
 use Illuminate\Http\Request;
-use App\Services\ProductService;
+use App\Http\Resources\ProductResource;
+use Illuminate\Http\JsonResponse;
+
 
 class ProductController extends Controller
 {
@@ -14,79 +18,73 @@ class ProductController extends Controller
      */
     protected $productService;
 
-    public function __construct(ProductService $productService)
+    public function __construct(ProductServiceInterface $productService)
     {
         $this->productService = $productService;
     }
 
-    public function index()
+    public function index(Request $request): JsonResponse
     {
-        return [];
+        $filters = $request->only(['category_id', 'origin_id', 'search', 'is_show']);
+        $perPage = $request->get('per_page', 15);
+        $products = $this->productService->listProducts($filters, $perPage);
+
+        return response()->json([
+            'data' => ProductResource::collection($products),
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+            ]
+        ]);
     }
 
     /**
      * Store a newly created resource in storage.
      */
-    public function store(ProductStoreRequest $request)
+    public function store(StoreProductRequest $request): JsonResponse
     {
-        try {
-            // Lấy dữ liệu đã validate
-            $validated = $request->validated();
-
-            // Chuẩn bị dữ liệu cho service
-            $productData = [
-                'category_id'        => $validated['category_id'],
-                'subcategory_id'     => $validated['subcategory_id'] ?? null,
-                'origin_id'          => $validated['origin_id'] ?? null,
-                'product_name'       => $validated['product_name'],
-                'description'        => $validated['description'] ?? null,
-                'usage_instructions' => $validated['usage_instructions'] ?? null,
-                'safety_warning'     => $validated['safety_warning'] ?? null,
-                'is_show'            => $validated['is_show'] ?? true,
-                'variants'           => $validated['variants'] ?? [],
-            ];
-
-            // Xử lý ảnh: nếu có upload file thì lấy files, ngược lại lấy từ URL
-            $imageFiles = $request->hasFile('images') ? $request->file('images') : null;
-            if (!$imageFiles && isset($validated['images'])) {
-                $productData['images'] = $validated['images'];
-            }
-
-            $product = $this->productService->createProduct($productData, $imageFiles);
-
-            return response()->json([
-                'message' => 'Tạo sản phẩm thành công',
-                'product' => $product
-            ], 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Tạo sản phẩm thất bại',
-                'error'   => $e->getMessage()
-            ], 500);
-        }
+        $data = $request->validated();
+        $imageFiles = $request->file('images', []);
+        $product = $this->productService->createProduct($data, $imageFiles);
+        return response()->json(new ProductResource($product), 201);
     }
 
     /**
      * Display the specified resource.
      */
-    public function show(string $id)
+    public function show(int $id): JsonResponse
     {
-        //
+        $product = $this->productService->getProductDetail($id);
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+        return response()->json(new ProductResource($product));
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(UpdateProductRequest $request, int $id): JsonResponse
     {
-        //
+        $data = $request->validated();
+        $imageFiles = $request->file('images', []);
+        $updated = $this->productService->updateProduct($id, $data, $imageFiles);
+        if (!$updated) {
+            return response()->json(['message' => 'Update failed'], 400);
+        }
+        return response()->json(['message' => 'Cập nhật sản phẩm thành công']);
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(string $id)
+    public function destroy(int $id): JsonResponse
     {
-        //
+        $deleted = $this->productService->deleteProduct($id);
+        if (!$deleted) {
+            return response()->json(['message' => 'Delete failed'], 400);
+        }
+        return response()->json(['message' => 'Xóa sản phẩm thành công']);
     }
 }
