@@ -7,6 +7,15 @@ use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Auth\RegisterOtpController;
+
+Route::post('/send-register-code', [RegisterOtpController::class, 'sendCode'])
+    ->middleware('guest')
+    ->name('register.send-code');
+
+Route::post('/verify-register-code', [RegisterOtpController::class, 'verifyCode'])
+    ->middleware('guest')
+    ->name('register.verify-code');
 
 Route::post('/register', [RegisteredUserController::class, 'store'])
     ->middleware('guest')
@@ -24,13 +33,13 @@ Route::post('/reset-password', [NewPasswordController::class, 'store'])
     ->middleware('guest')
     ->name('password.store');
 
-Route::get('/verify-email/{id}/{hash}', VerifyEmailController::class)
-    ->middleware(['auth:sanctum', 'signed', 'throttle:6,1'])
-    ->name('verification.verify');
+// Route::get('/verify-email/{id}/{hash}', VerifyEmailController::class)
+//     ->middleware(['auth:sanctum', 'signed', 'throttle:6,1'])
+//     ->name('verification.verify');
 
-Route::post('/email/verification-notification', [EmailVerificationNotificationController::class, 'store'])
-    ->middleware(['auth:sanctum', 'throttle:6,1'])
-    ->name('verification.send');
+// Route::post('/email/verification-notification', [EmailVerificationNotificationController::class, 'store'])
+//     ->middleware(['auth:sanctum', 'throttle:6,1'])
+//     ->name('verification.send');
 
 Route::post('/logout', [LoginController::class, 'destroy'])
     ->middleware('auth:sanctum')
