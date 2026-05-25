@@ -27,7 +27,7 @@ class SendRegisterOtpMail extends Mailable
 
     public function build()
     {
-        return $this->view('emails.register_otp')
+        return $this->subject('Mã OTP đăng ký tài khoản')
             ->with([
                 'code' => $this->code,
             ]);
