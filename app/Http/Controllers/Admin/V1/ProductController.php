@@ -32,6 +32,7 @@ class ProductController extends Controller implements HasMiddleware
     {
         $filters = $request->only([
             'category_id',
+            'subcategory_id',
             'origin_id',
             'search',
             'is_show',

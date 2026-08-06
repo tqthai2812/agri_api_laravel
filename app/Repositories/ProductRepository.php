@@ -8,10 +8,11 @@ use App\Models\ProductPackage;
 use App\Models\ProductVariant;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 
 class ProductRepository implements ProductRepositoryInterface
 {
-    protected $model;
+    protected Product $model;
 
     public function __construct(Product $product)
     {
@@ -20,21 +21,53 @@ class ProductRepository implements ProductRepositoryInterface
 
     public function getAll(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        $query = $this->model->with(['category', 'origin', 'images']);
+        $query = $this->model->query()
+            ->with([
+                'category:id,category_name',
+                'subcategory:id,subcategory_name,category_id',
+                'origin:id,origin_name,origin_image',
+                'images:id,product_id,image_url,is_primary,sort_order',
+                'variants:id,product_id,variant_name',
+                'variants.packages:id,variant_id,sku,size,unit,price,quantity_available,barcode,box_barcode',
+            ]);
 
         if (!empty($filters['category_id'])) {
             $query->where('category_id', $filters['category_id']);
         }
+
+        if (!empty($filters['subcategory_id'])) {
+            $query->where('subcategory_id', $filters['subcategory_id']);
+        }
+
         if (!empty($filters['origin_id'])) {
             $query->where('origin_id', $filters['origin_id']);
         }
+
         if (!empty($filters['search'])) {
-            $query->where('product_name', 'like', '%' . $filters['search'] . '%');
+            $search = $filters['search'];
+
+            $query->where(function ($q) use ($search) {
+                $q->where('product_name', 'like', "%{$search}%")
+                    ->orWhereHas('category', function ($categoryQuery) use ($search) {
+                        $categoryQuery->where('category_name', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('subcategory', function ($subcategoryQuery) use ($search) {
+                        $subcategoryQuery->where('subcategory_name', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('origin', function ($originQuery) use ($search) {
+                        $originQuery->where('origin_name', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('variants.packages', function ($packageQuery) use ($search) {
+                        $packageQuery->where('sku', 'like', "%{$search}%");
+                    });
+            });
         }
-        if (isset($filters['is_show'])) {
-            $query->where('is_show', $filters['is_show']);
+
+        if (isset($filters['is_show']) && $filters['is_show'] !== '') {
+            $query->where('is_show', filter_var($filters['is_show'], FILTER_VALIDATE_BOOLEAN));
         }
-        $query->orderBy('created_at', 'desc');
+
+        $query->orderByDesc('created_at');
 
         return $query->paginate($perPage);
     }
@@ -46,7 +79,16 @@ class ProductRepository implements ProductRepositoryInterface
 
     public function getProductWithRelations(int $id): ?object
     {
-        return $this->model->with(['images', 'variants.packages'])->find($id);
+        return $this->model->query()
+            ->with([
+                'category:id,category_name',
+                'subcategory:id,subcategory_name,category_id',
+                'origin:id,origin_name,origin_image',
+                'images:id,product_id,image_url,is_primary,sort_order',
+                'variants:id,product_id,variant_name',
+                'variants.packages:id,variant_id,sku,size,unit,price,quantity_available,barcode,box_barcode',
+            ])
+            ->find($id);
     }
 
     public function create(array $data): object
@@ -57,12 +99,14 @@ class ProductRepository implements ProductRepositoryInterface
     public function update(int $id, array $data): bool
     {
         $product = $this->findById($id);
+
         return $product ? $product->update($data) : false;
     }
 
     public function delete(int $id): bool
     {
         $product = $this->findById($id);
+
         return $product ? $product->delete() : false;
     }
 
@@ -74,8 +118,8 @@ class ProductRepository implements ProductRepositoryInterface
             ProductImage::create([
                 'product_id' => $productId,
                 'image_url' => $path,
-                'is_primary' => ($primaryIndex === $index),
-                'sort_order' => $index
+                'is_primary' => $primaryIndex === $index,
+                'sort_order' => $index,
             ]);
         }
     }
@@ -87,9 +131,10 @@ class ProductRepository implements ProductRepositoryInterface
         foreach ($variantsData as $variantData) {
             $variant = ProductVariant::create([
                 'product_id' => $productId,
-                'variant_name' => $variantData['variant_name']
+                'variant_name' => $variantData['variant_name'],
             ]);
-            foreach ($variantData['packages'] as $pkgData) {
+
+            foreach ($variantData['packages'] ?? [] as $pkgData) {
                 ProductPackage::create([
                     'variant_id' => $variant->id,
                     'sku' => $pkgData['sku'],

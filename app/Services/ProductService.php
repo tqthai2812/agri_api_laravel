@@ -123,17 +123,22 @@ class ProductService implements ProductServiceInterface
     public function deleteProduct(int $id): bool
     {
         DB::beginTransaction();
+
         try {
-            $product = $this->productRepository->findById($id);
+            $product = $this->productRepository->getProductWithRelations($id);
+
             if (!$product) {
                 throw new Exception("Product not found");
             }
-            // Delete physical images
+
             foreach ($product->images as $img) {
                 $this->imageUploadService->delete($img->image_url);
             }
+
             $result = $this->productRepository->delete($id);
+
             DB::commit();
+
             return $result;
         } catch (Exception $e) {
             DB::rollBack();
