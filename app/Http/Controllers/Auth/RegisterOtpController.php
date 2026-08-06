@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use App\Mail\SendRegisterOtpMail;
 
 class RegisterOtpController extends Controller
 {
@@ -40,13 +41,7 @@ class RegisterOtpController extends Controller
             'expires_at' => now()->addMinutes(10),
         ]);
 
-        Mail::raw(
-            "Mã xác thực đăng ký tài khoản của bạn là: {$code}. Mã này có hiệu lực trong 10 phút.",
-            function ($message) use ($request) {
-                $message->to($request->email)
-                    ->subject('Mã xác thực đăng ký tài khoản');
-            }
-        );
+        Mail::to($request->email)->send(new SendRegisterOtpMail($code));
 
         return response()->json([
             'message' => 'Mã xác thực đã được gửi đến email.',

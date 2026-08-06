@@ -22,7 +22,10 @@ class LoginController extends Controller
         $user = $request->user();
 
         $data = [
-            'user' => $user,
+            'user' => array_merge($user->toArray(), [
+                'roles' => $user->getRoleNames(),
+                'permissions' => $user->getAllPermissions()->pluck('name'),
+            ]),
             'message' => 'Đăng nhập thành công',
         ];
 
