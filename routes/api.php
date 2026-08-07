@@ -93,19 +93,14 @@ Route::prefix('v1')
         |--------------------------------------------------------------------------
         */
 
-        Route::get('users', [
-            UserController::class,
+        Route::put('users/{user}/roles', [UserRoleController::class, 'update']);
+
+        Route::apiResource('users', UserController::class)->only([
             'index',
-        ]);
-
-        Route::get('users/{user}', [
-            UserController::class,
+            'store',
             'show',
-        ]);
-
-        Route::put('users/{user}/roles', [
-            UserRoleController::class,
             'update',
+            'destroy',
         ]);
     });
 

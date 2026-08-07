@@ -2,16 +2,27 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use App\Models\Origin;
 use Illuminate\Database\Seeder;
 
 class OriginSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        //
+        $origins = [
+            'Việt Nam',
+            'Nhật Bản',
+            'Hàn Quốc',
+            'Thái Lan',
+            'Hoa Kỳ',
+            'Đức',
+            'Trung Quốc',
+        ];
+
+        foreach ($origins as $originName) {
+            Origin::firstOrCreate([
+                'origin_name' => $originName,
+            ]);
+        }
     }
 }

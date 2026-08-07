@@ -53,6 +53,7 @@ class PermissionSeeder extends Seeder
             'user.create',
             'user.update',
             'user.delete',
+            'user.assign-role',
 
             // Role
             'role.view',
@@ -64,8 +65,11 @@ class PermissionSeeder extends Seeder
             // Permission
             'permission.view',
 
-            // Assign role to user
-            'user.assign-role',
+            // Other admin pages
+            'inventory.view',
+            'gallery.view',
+            'article.view',
+            'settings.view',
         ];
 
         foreach ($permissions as $permission) {
