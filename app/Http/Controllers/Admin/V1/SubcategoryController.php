@@ -3,71 +3,112 @@
 namespace App\Http\Controllers\Admin\V1;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Subcategory;
-use App\Http\Resources\SubcategoryResource;
 use App\Http\Requests\Admin\Subcategory\SubcategoryRequest;
+use App\Http\Resources\SubcategoryResource;
+use App\Models\Subcategory;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class SubcategoryController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index(Request $request)
     {
+        $query = Subcategory::query()
+            ->with('category')
+            ->withCount('products')
+            ->when($request->input('category_id'), function ($q, $categoryId) {
+                $q->where('category_id', $categoryId);
+            })
+            ->when($request->input('search'), function ($q, $search) {
+                $q->where('subcategory_name', 'like', "%{$search}%")
+                    ->orWhere('subcategory_slug', 'like', "%{$search}%")
+                    ->orWhereHas('category', function ($categoryQuery) use ($search) {
+                        $categoryQuery->where('category_name', 'like', "%{$search}%");
+                    });
+            })
+            ->latest();
 
-        // Lọc theo category_id nếu có
-        if ($request->has('category_id')) {
-            $query = Subcategory::with('category');
-            $subcategories = $query->where('category_id', $request->category_id)->get();
-        } else {
-            $subcategories = Subcategory::get();
+        if ($request->filled('per_page')) {
+            return SubcategoryResource::collection(
+                $query->paginate($request->input('per_page', 15))
+            );
         }
 
-        return SubcategoryResource::collection($subcategories);
+        return SubcategoryResource::collection($query->get());
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(SubcategoryRequest $request)
     {
         $data = $request->validated();
+
+        if (empty($data['subcategory_slug'])) {
+            $data['subcategory_slug'] = $this->makeUniqueSlug($data['subcategory_name']);
+        }
+
         $subcategory = Subcategory::create($data);
-        return new SubcategoryResource($subcategory->load('category'));
+
+        return (new SubcategoryResource(
+            $subcategory->load('category')->loadCount('products')
+        ))->additional([
+            'message' => 'Thêm danh mục con thành công.',
+        ]);
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Subcategory $subcategory)
     {
-        $subcategory->load('category');
+        $subcategory->load('category')->loadCount('products');
+
         return new SubcategoryResource($subcategory);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(SubcategoryRequest $request, Subcategory $subcategory)
     {
         $data = $request->validated();
+
+        if (array_key_exists('subcategory_name', $data) && empty($data['subcategory_slug'])) {
+            $data['subcategory_slug'] = $this->makeUniqueSlug($data['subcategory_name'], $subcategory->id);
+        }
+
         $subcategory->update($data);
-        return new SubcategoryResource($subcategory->load('category'));
+
+        return (new SubcategoryResource(
+            $subcategory->fresh()->load('category')->loadCount('products')
+        ))->additional([
+            'message' => 'Cập nhật danh mục con thành công.',
+        ]);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Subcategory $subcategory)
     {
-        // Kiểm tra xem có sản phẩm nào thuộc subcategory này không
         if ($subcategory->products()->exists()) {
             return response()->json([
-                'message' => 'Không thể xóa danh mục con này vì có sản phẩm thuộc danh mục con này.'
+                'message' => 'Không thể xóa danh mục con vì vẫn còn sản phẩm liên quan.',
             ], 409);
         }
+
         $subcategory->delete();
-        return response()->json(['message' => 'Danh mục con đã được xóa thành công'], 200);
+
+        return response()->json([
+            'message' => 'Xóa danh mục con thành công.',
+        ]);
+    }
+
+    private function makeUniqueSlug(string $name, ?int $ignoreId = null): string
+    {
+        $baseSlug = Str::slug($name);
+        $slug = $baseSlug;
+        $index = 1;
+
+        while (
+            Subcategory::query()
+            ->where('subcategory_slug', $slug)
+            ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))
+            ->exists()
+        ) {
+            $slug = $baseSlug . '-' . $index;
+            $index++;
+        }
+
+        return $slug;
     }
 }
