@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class ProductPackage extends Model
 {
-    /** @use HasFactory<\Database\Factories\ProductPackageFactory> */
     use HasFactory;
 
     protected $table = 'product_packages';
@@ -22,7 +21,7 @@ class ProductPackage extends Model
         'price',
         'quantity_available',
         'barcode',
-        'box_barcode'
+        'box_barcode',
     ];
 
     protected $casts = [
@@ -44,16 +43,16 @@ class ProductPackage extends Model
 
     public function cartItems(): HasMany
     {
-        return $this->hasMany(CartItem::class);
+        return $this->hasMany(CartItem::class, 'package_id');
     }
 
     public function orderItems(): HasMany
     {
-        return $this->hasMany(OrderItem::class);
+        return $this->hasMany(OrderItem::class, 'package_id');
     }
 
     public function inventoryTransactions(): HasMany
     {
-        return $this->hasMany(InventoryTransaction::class);
+        return $this->hasMany(InventoryTransaction::class, 'package_id');
     }
 }

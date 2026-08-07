@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class InventoryTransaction extends Model
 {
-    /** @use HasFactory<\Database\Factories\InventoryTransactionFactory> */
     use HasFactory;
 
     protected $table = 'inventory_transactions';
@@ -18,12 +17,16 @@ class InventoryTransaction extends Model
         'quantity_change',
         'transaction_type',
         'note',
-        'performed_by'
+        'performed_by',
     ];
 
     protected $casts = [
         'quantity_change' => 'integer',
     ];
+
+    const TYPE_IMPORT = 'import';
+    const TYPE_EXPORT = 'export';
+    const TYPE_ADJUSTMENT = 'adjustment';
 
     public function package(): BelongsTo
     {

@@ -62,6 +62,8 @@ class AdminRoleSeeder extends Seeder
             'user.view',
 
             'inventory.view',
+            'inventory.create',
+            'inventory.update',
         ]);
 
         $customerRole->syncPermissions([]);

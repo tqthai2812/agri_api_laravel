@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\V1\RoleController;
 use App\Http\Controllers\Admin\V1\SubcategoryController;
 use App\Http\Controllers\Admin\V1\UserController;
 use App\Http\Controllers\Admin\V1\UserRoleController;
+use App\Http\Controllers\Admin\V1\InventoryController;
 
 /*
 |--------------------------------------------------------------------------
@@ -102,6 +103,13 @@ Route::prefix('v1')
             'update',
             'destroy',
         ]);
+
+        Route::get('inventory', [InventoryController::class, 'index']);
+        Route::get('inventory/{package}', [InventoryController::class, 'show']);
+
+        Route::get('inventory-transactions', [InventoryController::class, 'transactions']);
+        Route::post('inventory-transactions', [InventoryController::class, 'store']);
+        Route::put('inventory-transactions/{transaction}', [InventoryController::class, 'update']);
     });
 
 require __DIR__ . '/auth.php';

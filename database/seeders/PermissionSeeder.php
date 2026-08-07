@@ -66,10 +66,15 @@ class PermissionSeeder extends Seeder
             'permission.view',
 
             // Other admin pages
-            'inventory.view',
             'gallery.view',
             'article.view',
             'settings.view',
+
+            // Inventory
+            'inventory.view',
+            'inventory.create',
+            'inventory.update',
+            'inventory.delete',
         ];
 
         foreach ($permissions as $permission) {
