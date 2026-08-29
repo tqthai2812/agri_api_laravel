@@ -3,17 +3,20 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CartItem extends Model
 {
-    /** @use HasFactory<\Database\Factories\CartItemFactory> */
     use HasFactory;
 
     protected $table = 'cart_items';
 
-    protected $fillable = ['cart_id', 'package_id', 'quantity'];
+    protected $fillable = [
+        'cart_id',
+        'package_id',
+        'quantity',
+    ];
 
     protected $casts = [
         'quantity' => 'integer',
@@ -21,7 +24,7 @@ class CartItem extends Model
 
     public function cart(): BelongsTo
     {
-        return $this->belongsTo(ShoppingCart::class);
+        return $this->belongsTo(ShoppingCart::class, 'cart_id');
     }
 
     public function package(): BelongsTo

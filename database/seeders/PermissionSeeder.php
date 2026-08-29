@@ -75,6 +75,18 @@ class PermissionSeeder extends Seeder
             'inventory.create',
             'inventory.update',
             'inventory.delete',
+
+            // Delivery Method
+            'delivery-method.view',
+            'delivery-method.create',
+            'delivery-method.update',
+            'delivery-method.delete',
+
+            // Discount
+            'discount.view',
+            'discount.create',
+            'discount.update',
+            'discount.delete',
         ];
 
         foreach ($permissions as $permission) {

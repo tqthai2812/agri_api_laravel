@@ -14,6 +14,24 @@ use App\Contracts\Repositories\InventoryRepositoryInterface;
 use App\Repositories\InventoryRepository;
 use App\Contracts\Services\InventoryServiceInterface;
 use App\Services\InventoryService;
+use App\Contracts\Repositories\DeliveryMethodRepositoryInterface;
+use App\Contracts\Services\DeliveryMethodServiceInterface;
+use App\Repositories\DeliveryMethodRepository;
+use App\Services\DeliveryMethodService;
+use App\Contracts\Repositories\DiscountRepositoryInterface;
+use App\Contracts\Services\DiscountServiceInterface;
+use App\Repositories\DiscountRepository;
+use App\Services\DiscountService;
+use App\Contracts\Repositories\OrderRepositoryInterface;
+use App\Contracts\Services\OrderServiceInterface;
+use App\Repositories\OrderRepository;
+use App\Services\OrderService;
+use App\Contracts\Repositories\CartRepositoryInterface;
+use App\Contracts\Services\CartServiceInterface;
+use App\Contracts\Services\CheckoutServiceInterface;
+use App\Repositories\CartRepository;
+use App\Services\CartService;
+use App\Services\CheckoutService;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -27,6 +45,15 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(ImageUploadServiceInterface::class, ImageUploadService::class);
         $this->app->bind(InventoryRepositoryInterface::class, InventoryRepository::class);
         $this->app->bind(InventoryServiceInterface::class, InventoryService::class);
+        $this->app->bind(DeliveryMethodRepositoryInterface::class, DeliveryMethodRepository::class);
+        $this->app->bind(DeliveryMethodServiceInterface::class, DeliveryMethodService::class);
+        $this->app->bind(DiscountRepositoryInterface::class, DiscountRepository::class);
+        $this->app->bind(DiscountServiceInterface::class, DiscountService::class);
+        $this->app->bind(OrderRepositoryInterface::class, OrderRepository::class);
+        $this->app->bind(OrderServiceInterface::class, OrderService::class);
+        $this->app->bind(CartRepositoryInterface::class, CartRepository::class);
+        $this->app->bind(CartServiceInterface::class, CartService::class);
+        $this->app->bind(CheckoutServiceInterface::class, CheckoutService::class);
     }
 
     /**

@@ -9,13 +9,13 @@ use Illuminate\Database\Eloquent\Model;
 
 class Discount extends Model
 {
-    /** @use HasFactory<\Database\Factories\DiscountFactory> */
     use HasFactory;
 
     protected $table = 'discounts';
 
     protected $fillable = [
         'user_id',
+        'discount_code',
         'discount_description',
         'discount_percent',
         'max_discount_amount',
@@ -23,7 +23,7 @@ class Discount extends Model
         'usage_limit',
         'used_count',
         'expire_date',
-        'is_active'
+        'is_active',
     ];
 
     protected $casts = [

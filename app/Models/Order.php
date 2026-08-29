@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class Order extends Model
 {
-    /** @use HasFactory<\Database\Factories\OrderFactory> */
     use HasFactory;
 
     protected $table = 'orders';
@@ -25,7 +24,7 @@ class Order extends Model
         'total_quantity',
         'total_payment',
         'payment_method',
-        'order_status'
+        'order_status',
     ];
 
     protected $casts = [

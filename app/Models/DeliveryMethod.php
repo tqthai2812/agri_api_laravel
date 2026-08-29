@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DeliveryMethod extends Model
 {
-    /** @use HasFactory<\Database\Factories\DeliveryMethodFactory> */
     use HasFactory;
 
     protected $table = 'delivery_methods';
@@ -20,7 +19,7 @@ class DeliveryMethod extends Model
         'min_order_amount',
         'region',
         'is_active',
-        'is_default'
+        'is_default',
     ];
 
     protected $casts = [

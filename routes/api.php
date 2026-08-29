@@ -12,6 +12,11 @@ use App\Http\Controllers\Admin\V1\SubcategoryController;
 use App\Http\Controllers\Admin\V1\UserController;
 use App\Http\Controllers\Admin\V1\UserRoleController;
 use App\Http\Controllers\Admin\V1\InventoryController;
+use App\Http\Controllers\Admin\V1\DeliveryMethodController;
+use App\Http\Controllers\Admin\V1\DiscountController;
+use App\Http\Controllers\Admin\V1\OrderController;
+use App\Http\Controllers\Client\V1\CartController;
+use App\Http\Controllers\Client\V1\CheckoutController;
 
 /*
 |--------------------------------------------------------------------------
@@ -103,13 +108,29 @@ Route::prefix('v1')
             'update',
             'destroy',
         ]);
-
+        Route::apiResource('discounts', DiscountController::class);
+        Route::apiResource('delivery-methods', DeliveryMethodController::class);
         Route::get('inventory', [InventoryController::class, 'index']);
         Route::get('inventory/{package}', [InventoryController::class, 'show']);
 
         Route::get('inventory-transactions', [InventoryController::class, 'transactions']);
         Route::post('inventory-transactions', [InventoryController::class, 'store']);
         Route::put('inventory-transactions/{transaction}', [InventoryController::class, 'update']);
+
+        Route::get('orders/status-counts', [OrderController::class, 'statusCounts']);
+        Route::get('orders', [OrderController::class, 'index']);
+        Route::get('orders/{order}', [OrderController::class, 'show']);
+        Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus']);
+
+        Route::get('cart', [CartController::class, 'show']);
+        Route::post('cart/items', [CartController::class, 'store']);
+        Route::put('cart/items/{item}', [CartController::class, 'update']);
+        Route::delete('cart/items/{item}', [CartController::class, 'destroy']);
+        Route::delete('cart', [CartController::class, 'clear']);
+
+        Route::get('checkout/options', [CheckoutController::class, 'options']);
+        Route::post('checkout/preview', [CheckoutController::class, 'preview']);
+        Route::post('checkout', [CheckoutController::class, 'checkout']);
     });
 
 require __DIR__ . '/auth.php';
