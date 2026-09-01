@@ -133,4 +133,10 @@ Route::prefix('v1')
         Route::post('checkout', [CheckoutController::class, 'checkout']);
     });
 
+Route::prefix('v1')->group(function () {
+    Route::get('public/categories', [CategoryController::class, 'index']);
+    Route::get('public/products', [ProductController::class, 'index']);
+    Route::get('public/products/{product}', [ProductController::class, 'show']);
+});
+
 require __DIR__ . '/auth.php';
