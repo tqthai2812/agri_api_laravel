@@ -43,12 +43,14 @@ class CheckoutController extends Controller
     public function checkout(CheckoutRequest $request): JsonResponse
     {
         try {
+            $data = $this->checkoutService->checkout(
+                auth()->user(),
+                $request->validated()
+            );
+
             return response()->json([
                 'message' => 'Đặt hàng thành công.',
-                'data' => $this->checkoutService->checkout(
-                    auth()->user(),
-                    $request->validated()
-                ),
+                'data' => $data,
             ], 201);
         } catch (RuntimeException $e) {
             return response()->json([

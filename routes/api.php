@@ -17,6 +17,12 @@ use App\Http\Controllers\Admin\V1\DiscountController;
 use App\Http\Controllers\Admin\V1\OrderController;
 use App\Http\Controllers\Client\V1\CartController;
 use App\Http\Controllers\Client\V1\CheckoutController;
+use App\Http\Controllers\Client\V1\PublicCategoryController;
+use App\Http\Controllers\Client\V1\PublicProductController;
+use App\Http\Controllers\Admin\V1\NewsController;
+use App\Http\Controllers\Client\V1\PublicNewsController;
+use App\Http\Controllers\Client\V1\PublicProductFilterController;
+use App\Http\Controllers\Client\V1\ShippingAddressController;
 
 /*
 |--------------------------------------------------------------------------
@@ -128,15 +134,31 @@ Route::prefix('v1')
         Route::delete('cart/items/{item}', [CartController::class, 'destroy']);
         Route::delete('cart', [CartController::class, 'clear']);
 
+        Route::get('shipping-addresses', [ShippingAddressController::class, 'index']);
+        Route::post('shipping-addresses', [ShippingAddressController::class, 'store']);
+        Route::put('shipping-addresses/{address}', [ShippingAddressController::class, 'update']);
+        Route::delete('shipping-addresses/{address}', [ShippingAddressController::class, 'destroy']);
+        Route::patch('shipping-addresses/{address}/default', [ShippingAddressController::class, 'setDefault']);
+
         Route::get('checkout/options', [CheckoutController::class, 'options']);
         Route::post('checkout/preview', [CheckoutController::class, 'preview']);
         Route::post('checkout', [CheckoutController::class, 'checkout']);
+
+        Route::get('news/status-counts', [NewsController::class, 'statusCounts']);
+        Route::apiResource('news', NewsController::class)->except(['update']);
+        Route::post('news/{news}', [NewsController::class, 'update']);
     });
 
-Route::prefix('v1')->group(function () {
-    Route::get('public/categories', [CategoryController::class, 'index']);
-    Route::get('public/products', [ProductController::class, 'index']);
-    Route::get('public/products/{product}', [ProductController::class, 'show']);
+Route::prefix('v1/public')->group(function () {
+    Route::get('categories', [PublicCategoryController::class, 'index']);
+
+    Route::get('product-filters', [PublicProductFilterController::class, 'index']);
+
+    Route::get('products', [PublicProductController::class, 'index']);
+    Route::get('products/{product}', [PublicProductController::class, 'show']);
+
+    Route::get('news', [PublicNewsController::class, 'index']);
+    Route::get('news/{slug}', [PublicNewsController::class, 'show']);
 });
 
 require __DIR__ . '/auth.php';

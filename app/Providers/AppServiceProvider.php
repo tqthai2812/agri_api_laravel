@@ -32,6 +32,10 @@ use App\Contracts\Services\CheckoutServiceInterface;
 use App\Repositories\CartRepository;
 use App\Services\CartService;
 use App\Services\CheckoutService;
+use App\Contracts\Repositories\NewsRepositoryInterface;
+use App\Contracts\Services\NewsServiceInterface;
+use App\Repositories\NewsRepository;
+use App\Services\NewsService;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -54,6 +58,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(CartRepositoryInterface::class, CartRepository::class);
         $this->app->bind(CartServiceInterface::class, CartService::class);
         $this->app->bind(CheckoutServiceInterface::class, CheckoutService::class);
+        $this->app->bind(NewsRepositoryInterface::class, NewsRepository::class);
+        $this->app->bind(NewsServiceInterface::class, NewsService::class);
     }
 
     /**

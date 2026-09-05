@@ -30,7 +30,10 @@ class CartController extends Controller
     public function store(StoreCartItemRequest $request): JsonResponse
     {
         try {
-            $cart = $this->cartService->addItem(auth()->id(), $request->validated());
+            $cart = $this->cartService->addItem(
+                auth()->id(),
+                $request->validated()
+            );
 
             return response()->json([
                 'message' => 'Thêm sản phẩm vào giỏ hàng thành công.',
@@ -43,8 +46,10 @@ class CartController extends Controller
         }
     }
 
-    public function update(UpdateCartItemRequest $request, CartItem $item): JsonResponse
-    {
+    public function update(
+        UpdateCartItemRequest $request,
+        CartItem $item
+    ): JsonResponse {
         try {
             $cart = $this->cartService->updateItem(
                 auth()->id(),
@@ -66,7 +71,10 @@ class CartController extends Controller
     public function destroy(CartItem $item): JsonResponse
     {
         try {
-            $cart = $this->cartService->removeItem(auth()->id(), $item);
+            $cart = $this->cartService->removeItem(
+                auth()->id(),
+                $item
+            );
 
             return response()->json([
                 'message' => 'Xóa sản phẩm khỏi giỏ hàng thành công.',

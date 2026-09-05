@@ -26,11 +26,37 @@ class CartService implements CartServiceInterface
         return DB::transaction(function () use ($userId, $data) {
             $cart = $this->cartRepository->getOrCreateCart($userId);
 
-            $package = ProductPackage::findOrFail($data['package_id']);
+            $package = ProductPackage::query()
+                ->where('id', $data['package_id'])
+                ->with([
+                    'variant:id,product_id,variant_name',
+                    'variant.product:id,product_name,is_show',
+                ])
+                ->lockForUpdate()
+                ->first();
 
-            $quantity = (int) $data['quantity'];
+            if (! $package) {
+                throw new RuntimeException('Quy cách sản phẩm không tồn tại.');
+            }
 
-            $existingItem = $this->cartRepository->findItemByPackage($cart->id, $package->id);
+            if (! $package->variant || ! $package->variant->product) {
+                throw new RuntimeException('Sản phẩm không hợp lệ.');
+            }
+
+            if (! $package->variant->product->is_show) {
+                throw new RuntimeException('Sản phẩm này hiện không còn được bán.');
+            }
+
+            $quantity = max((int) $data['quantity'], 1);
+
+            if ((int) $package->quantity_available <= 0) {
+                throw new RuntimeException('Sản phẩm đã hết hàng.');
+            }
+
+            $existingItem = $this->cartRepository->findItemByPackage(
+                $cart->id,
+                $package->id
+            );
 
             $newQuantity = $existingItem
                 ? (int) $existingItem->quantity + $quantity
@@ -61,11 +87,32 @@ class CartService implements CartServiceInterface
         return DB::transaction(function () use ($userId, $item, $quantity) {
             $item = $this->cartRepository->findItemForUser($userId, $item->id);
 
-            if (!$item) {
+            if (! $item) {
                 throw new RuntimeException('Sản phẩm không tồn tại trong giỏ hàng.');
             }
 
-            $package = ProductPackage::findOrFail($item->package_id);
+            $package = ProductPackage::query()
+                ->where('id', $item->package_id)
+                ->with([
+                    'variant:id,product_id,variant_name',
+                    'variant.product:id,product_name,is_show',
+                ])
+                ->lockForUpdate()
+                ->first();
+
+            if (! $package) {
+                throw new RuntimeException('Quy cách sản phẩm không tồn tại.');
+            }
+
+            if (! $package->variant || ! $package->variant->product) {
+                throw new RuntimeException('Sản phẩm không hợp lệ.');
+            }
+
+            if (! $package->variant->product->is_show) {
+                throw new RuntimeException('Sản phẩm này hiện không còn được bán.');
+            }
+
+            $quantity = max((int) $quantity, 1);
 
             if ($quantity > (int) $package->quantity_available) {
                 throw new RuntimeException('Số lượng sản phẩm trong kho không đủ.');
@@ -84,7 +131,7 @@ class CartService implements CartServiceInterface
         return DB::transaction(function () use ($userId, $item) {
             $item = $this->cartRepository->findItemForUser($userId, $item->id);
 
-            if (!$item) {
+            if (! $item) {
                 throw new RuntimeException('Sản phẩm không tồn tại trong giỏ hàng.');
             }
 

@@ -75,6 +75,11 @@ class AdminRoleSeeder extends Seeder
 
             'order.view',
             'order.update',
+
+            'article.view',
+            'article.create',
+            'article.update',
+            'article.delete',
         ]);
 
         $customerRole->syncPermissions([]);

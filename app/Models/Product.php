@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\VietnameseText;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -25,7 +26,8 @@ class Product extends Model
         'safety_warning',
         'average_rating',
         'review_count',
-        'is_show'
+        'is_show',
+        'search_text',
     ];
 
     protected $casts = [
@@ -33,6 +35,45 @@ class Product extends Model
         'review_count' => 'integer',
         'is_show' => 'boolean',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (Product $product) {
+            $product->search_text = $product->makeSearchText();
+        });
+    }
+
+    public function makeSearchText(): string
+    {
+        $categoryName = $this->category_id
+            ? Category::query()->whereKey($this->category_id)->value('category_name')
+            : '';
+
+        $subcategoryName = $this->subcategory_id
+            ? Subcategory::query()->whereKey($this->subcategory_id)->value('subcategory_name')
+            : '';
+
+        $originName = $this->origin_id
+            ? Origin::query()->whereKey($this->origin_id)->value('origin_name')
+            : '';
+
+        return VietnameseText::normalize([
+            $this->product_name,
+            $this->description,
+            $this->usage_instructions,
+            $this->safety_warning,
+            $categoryName,
+            $subcategoryName,
+            $originName,
+        ]);
+    }
+
+    public function refreshSearchText(): bool
+    {
+        $this->search_text = $this->makeSearchText();
+
+        return $this->save();
+    }
 
     public function category(): BelongsTo
     {

@@ -22,6 +22,7 @@ class Tag extends Model
 
     public function news(): BelongsToMany
     {
-        return $this->belongsToMany(News::class, 'news_tag');
+        return $this->belongsToMany(News::class, 'news_tags', 'tag_id', 'news_id')
+            ->withTimestamps();
     }
 }

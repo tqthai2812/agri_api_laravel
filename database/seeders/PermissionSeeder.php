@@ -87,6 +87,12 @@ class PermissionSeeder extends Seeder
             'discount.create',
             'discount.update',
             'discount.delete',
+
+            // News
+            'article.view',
+            'article.create',
+            'article.update',
+            'article.delete',
         ];
 
         foreach ($permissions as $permission) {

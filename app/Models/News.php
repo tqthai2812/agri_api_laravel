@@ -3,14 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Model;
 
 class News extends Model
 {
-    /** @use HasFactory<\Database\Factories\NewsFactory> */
     use HasFactory;
 
     protected $table = 'news';
@@ -19,16 +18,21 @@ class News extends Model
         'user_id',
         'title',
         'subtitle',
+        'content',
         'slug',
         'title_image_url',
         'is_draft',
         'is_published',
-        'views'
+        'published_at',
+        'meta_title',
+        'meta_description',
+        'views',
     ];
 
     protected $casts = [
         'is_draft' => 'boolean',
         'is_published' => 'boolean',
+        'published_at' => 'datetime',
         'views' => 'integer',
     ];
 
@@ -39,16 +43,12 @@ class News extends Model
 
     public function images(): HasMany
     {
-        return $this->hasMany(NewsImage::class);
-    }
-
-    public function comments(): HasMany
-    {
-        return $this->hasMany(NewsComment::class);
+        return $this->hasMany(NewsImage::class, 'news_id');
     }
 
     public function tags(): BelongsToMany
     {
-        return $this->belongsToMany(Tag::class, 'news_tag');
+        return $this->belongsToMany(Tag::class, 'news_tags', 'news_id', 'tag_id')
+            ->withTimestamps();
     }
 }

@@ -4,6 +4,7 @@ namespace App\Contracts\Repositories;
 
 use App\Models\CartItem;
 use App\Models\ShoppingCart;
+use Illuminate\Support\Collection;
 
 interface CartRepositoryInterface
 {
@@ -21,5 +22,9 @@ interface CartRepositoryInterface
 
     public function deleteItem(CartItem $item): bool;
 
+    public function deleteItemsByIds(ShoppingCart $cart, array $itemIds): int;
+
     public function clearCart(ShoppingCart $cart): void;
+
+    public function selectedItemsForUser(int $userId, array $itemIds): Collection;
 }
