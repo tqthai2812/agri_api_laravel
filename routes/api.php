@@ -23,6 +23,9 @@ use App\Http\Controllers\Admin\V1\NewsController;
 use App\Http\Controllers\Client\V1\PublicNewsController;
 use App\Http\Controllers\Client\V1\PublicProductFilterController;
 use App\Http\Controllers\Client\V1\ShippingAddressController;
+use App\Http\Controllers\Client\V1\ProfileController;
+use App\Http\Controllers\Client\V1\OrderController as ClientOrderController;
+use App\Http\Controllers\Client\V1\WishlistController;
 
 /*
 |--------------------------------------------------------------------------
@@ -133,6 +136,21 @@ Route::prefix('v1')
         Route::put('cart/items/{item}', [CartController::class, 'update']);
         Route::delete('cart/items/{item}', [CartController::class, 'destroy']);
         Route::delete('cart', [CartController::class, 'clear']);
+
+        Route::get('wishlist', [WishlistController::class, 'index']);
+        Route::post('wishlist/items', [WishlistController::class, 'store']);
+        Route::post('wishlist/toggle', [WishlistController::class, 'toggle']);
+        Route::delete('wishlist/items', [WishlistController::class, 'destroyMany']);
+        Route::delete('wishlist/items/{wishlist}', [WishlistController::class, 'destroy']);
+
+        Route::get('profile', [ProfileController::class, 'show']);
+        Route::post('profile', [ProfileController::class, 'update']);
+        Route::put('profile/password', [ProfileController::class, 'changePassword']);
+
+        Route::get('my-orders/status-counts', [ClientOrderController::class, 'statusCounts']);
+        Route::get('my-orders', [ClientOrderController::class, 'index']);
+        Route::get('my-orders/{order}', [ClientOrderController::class, 'show']);
+        Route::patch('my-orders/{order}/cancel', [ClientOrderController::class, 'cancel']);
 
         Route::get('shipping-addresses', [ShippingAddressController::class, 'index']);
         Route::post('shipping-addresses', [ShippingAddressController::class, 'store']);

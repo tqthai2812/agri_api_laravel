@@ -36,6 +36,10 @@ use App\Contracts\Repositories\NewsRepositoryInterface;
 use App\Contracts\Services\NewsServiceInterface;
 use App\Repositories\NewsRepository;
 use App\Services\NewsService;
+use App\Contracts\Repositories\WishlistRepositoryInterface;
+use App\Contracts\Services\WishlistServiceInterface;
+use App\Repositories\WishlistRepository;
+use App\Services\WishlistService;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -60,6 +64,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(CheckoutServiceInterface::class, CheckoutService::class);
         $this->app->bind(NewsRepositoryInterface::class, NewsRepository::class);
         $this->app->bind(NewsServiceInterface::class, NewsService::class);
+        $this->app->bind(WishlistRepositoryInterface::class, WishlistRepository::class);
+        $this->app->bind(WishlistServiceInterface::class, WishlistService::class);
     }
 
     /**
