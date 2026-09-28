@@ -13,30 +13,28 @@ class CategorySeeder extends Seeder
         $categories = [
             [
                 'category_name' => 'Phân bón',
-                'category_description' => 'Các loại phân bón dùng cho cây trồng, cải tạo đất và tăng năng suất.',
+                'category_description' => 'Phân bón phục vụ chăm sóc cây trồng và cải tạo đất.',
             ],
             [
                 'category_name' => 'Thuốc bảo vệ thực vật',
-                'category_description' => 'Sản phẩm hỗ trợ phòng trừ sâu bệnh, nấm bệnh và cỏ dại.',
+                'category_description' => 'Sản phẩm hỗ trợ phòng trừ sâu bệnh và cỏ dại.',
             ],
             [
                 'category_name' => 'Hạt giống',
-                'category_description' => 'Các loại hạt giống rau, hoa và cây trồng.',
+                'category_description' => 'Hạt giống rau màu và cây trồng phổ biến.',
             ],
             [
                 'category_name' => 'Dụng cụ nông nghiệp',
-                'category_description' => 'Dụng cụ hỗ trợ chăm sóc cây trồng và làm vườn.',
+                'category_description' => 'Dụng cụ phục vụ gieo trồng và chăm sóc cây.',
             ],
         ];
 
-        foreach ($categories as $category) {
+        foreach ($categories as $item) {
             Category::updateOrCreate(
+                ['category_slug' => Str::slug($item['category_name'])],
                 [
-                    'category_slug' => Str::slug($category['category_name']),
-                ],
-                [
-                    'category_name' => $category['category_name'],
-                    'category_description' => $category['category_description'],
+                    'category_name' => $item['category_name'],
+                    'category_description' => $item['category_description'],
                 ]
             );
         }

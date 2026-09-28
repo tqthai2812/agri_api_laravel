@@ -9,7 +9,7 @@ use App\Http\Requests\Client\Cart\UpdateCartItemRequest;
 use App\Http\Resources\CartResource;
 use App\Models\CartItem;
 use Illuminate\Http\JsonResponse;
-use RuntimeException;
+use Illuminate\Http\Request;
 
 class CartController extends Controller
 {
@@ -17,9 +17,11 @@ class CartController extends Controller
         protected CartServiceInterface $cartService
     ) {}
 
-    public function show(): JsonResponse
+    public function show(Request $request): JsonResponse
     {
-        $cart = $this->cartService->getCart(auth()->id());
+        $cart = $this->cartService->getCart(
+            (int) $request->user()->id
+        );
 
         return response()->json([
             'message' => 'Lấy giỏ hàng thành công.',
@@ -29,67 +31,53 @@ class CartController extends Controller
 
     public function store(StoreCartItemRequest $request): JsonResponse
     {
-        try {
-            $cart = $this->cartService->addItem(
-                auth()->id(),
-                $request->validated()
-            );
+        $cart = $this->cartService->addItem(
+            (int) $request->user()->id,
+            $request->validated()
+        );
 
-            return response()->json([
-                'message' => 'Thêm sản phẩm vào giỏ hàng thành công.',
-                'data' => new CartResource($cart),
-            ], 201);
-        } catch (RuntimeException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 422);
-        }
+        return response()->json([
+            'message' => 'Thêm sản phẩm vào giỏ hàng thành công.',
+            'data' => new CartResource($cart),
+        ], 201);
     }
 
     public function update(
         UpdateCartItemRequest $request,
         CartItem $item
     ): JsonResponse {
-        try {
-            $cart = $this->cartService->updateItem(
-                auth()->id(),
-                $item,
-                (int) $request->validated('quantity')
-            );
+        $cart = $this->cartService->updateItem(
+            (int) $request->user()->id,
+            $item,
+            (int) $request->validated('quantity')
+        );
 
-            return response()->json([
-                'message' => 'Cập nhật giỏ hàng thành công.',
-                'data' => new CartResource($cart),
-            ]);
-        } catch (RuntimeException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 422);
-        }
+        return response()->json([
+            'message' => 'Cập nhật giỏ hàng thành công.',
+            'data' => new CartResource($cart),
+        ]);
     }
 
-    public function destroy(CartItem $item): JsonResponse
-    {
-        try {
-            $cart = $this->cartService->removeItem(
-                auth()->id(),
-                $item
-            );
+    public function destroy(
+        Request $request,
+        CartItem $item
+    ): JsonResponse {
+        $cart = $this->cartService->removeItem(
+            (int) $request->user()->id,
+            $item
+        );
 
-            return response()->json([
-                'message' => 'Xóa sản phẩm khỏi giỏ hàng thành công.',
-                'data' => new CartResource($cart),
-            ]);
-        } catch (RuntimeException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 422);
-        }
+        return response()->json([
+            'message' => 'Xóa sản phẩm khỏi giỏ hàng thành công.',
+            'data' => new CartResource($cart),
+        ]);
     }
 
-    public function clear(): JsonResponse
+    public function clear(Request $request): JsonResponse
     {
-        $cart = $this->cartService->clearCart(auth()->id());
+        $cart = $this->cartService->clearCart(
+            (int) $request->user()->id
+        );
 
         return response()->json([
             'message' => 'Đã xóa toàn bộ giỏ hàng.',

@@ -4,27 +4,31 @@ namespace App\Services;
 
 use App\Contracts\Repositories\CartRepositoryInterface;
 use App\Contracts\Services\CheckoutServiceInterface;
+use App\Contracts\Services\LocationServiceInterface;
+use App\Contracts\Services\OrderStockServiceInterface;
 use App\Http\Resources\CartResource;
 use App\Http\Resources\OrderResource;
 use App\Http\Resources\ShippingAddressResource;
 use App\Models\DeliveryMethod;
 use App\Models\Discount;
-use App\Models\InventoryTransaction;
 use App\Models\Order;
 use App\Models\OrderAddress;
 use App\Models\OrderHistory;
 use App\Models\OrderItem;
 use App\Models\Payment;
-use App\Models\ProductPackage;
 use App\Models\ShippingAddress;
 use App\Models\User;
+use App\Support\OrderMoney;
+use App\Support\OrderRelations;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
+use Illuminate\Validation\ValidationException;
 
 class CheckoutService implements CheckoutServiceInterface
 {
     public function __construct(
-        protected CartRepositoryInterface $cartRepository
+        protected CartRepositoryInterface $cartRepository,
+        protected OrderStockServiceInterface $stockService,
+        protected LocationServiceInterface $locationService
     ) {}
 
     public function options(User $user): array
@@ -32,27 +36,19 @@ class CheckoutService implements CheckoutServiceInterface
         $addresses = ShippingAddress::query()
             ->where('user_id', $user->id)
             ->orderByDesc('is_default')
-            ->latest()
+            ->orderByDesc('id')
             ->get();
 
-        $deliveryMethods = DeliveryMethod::query()
+        $methods = DeliveryMethod::query()
             ->where('is_active', true)
             ->orderByDesc('is_default')
-            ->latest()
-            ->get([
-                'id',
-                'name',
-                'description',
-                'base_price',
-                'min_order_amount',
-                'region',
-                'is_default',
-            ]);
+            ->orderByDesc('id')
+            ->get();
 
         return [
             'addresses' => ShippingAddressResource::collection($addresses),
 
-            'delivery_methods' => $deliveryMethods->map(fn($method) => [
+            'delivery_methods' => $methods->map(fn($method) => [
                 'id' => $method->id,
                 'name' => $method->name,
                 'description' => $method->description,
@@ -60,18 +56,21 @@ class CheckoutService implements CheckoutServiceInterface
                 'min_order_amount' => (float) $method->min_order_amount,
                 'region' => $method->region,
                 'is_default' => (bool) $method->is_default,
+                'requires_address_validation' => true,
             ])->values(),
 
             'payment_methods' => [
                 [
-                    'value' => Order::PAYMENT_COD,
+                    'value' => 'COD',
                     'label' => 'Thanh toán khi nhận hàng',
-                    'description' => 'Thanh toán tiền mặt cho đơn vị vận chuyển.',
+                    'description' => 'Thanh toán khi nhận hàng.',
+                    'enabled' => true,
                 ],
                 [
-                    'value' => Order::PAYMENT_VNPAY,
+                    'value' => 'VNPAY',
                     'label' => 'VNPay',
-                    'description' => 'Thanh toán trực tuyến qua cổng VNPay. Phần tích hợp cổng thanh toán có thể triển khai ở giai đoạn sau.',
+                    'description' => 'Sẽ được tích hợp sau.',
+                    'enabled' => false,
                 ],
             ],
         ];
@@ -79,340 +78,545 @@ class CheckoutService implements CheckoutServiceInterface
 
     public function preview(User $user, array $data): array
     {
-        return $this->publicSummary(
-            $this->buildSummary($user, $data)
-        );
+        $summary = $this->buildSummary($user, $data, false);
+
+        return $summary['public'];
     }
 
     public function checkout(User $user, array $data): array
     {
+        if (($data['payment_method'] ?? null) !== 'COD') {
+            $this->fail(
+                'payment_method',
+                'Thanh toán trực tuyến chưa được kích hoạt.'
+            );
+        }
+
         return DB::transaction(function () use ($user, $data) {
             $summary = $this->buildSummary($user, $data, true);
-            $addressData = $this->resolveAddressData($user, $data);
+            $public = $summary['public'];
 
             $order = Order::create([
                 'user_id' => $user->id,
                 'note' => $data['note'] ?? null,
-                'delivery_id' => $summary['delivery_method']['id'],
-                'discount_amount' => $summary['discount_amount'],
-                'discount_id' => $summary['discount']['id'] ?? null,
-                'delivery_cost' => $summary['delivery_cost'],
-                'total_quantity' => $summary['total_quantity'],
-                'total_payment' => $summary['total_payment'],
-                'payment_method' => $data['payment_method'],
-                'order_status' => Order::STATUS_PENDING,
+                'delivery_id' => $summary['delivery']->id,
+                'discount_id' => $summary['discount']?->id,
+                'discount_amount' => OrderMoney::decimal(
+                    $summary['discount_cents']
+                ),
+                'delivery_cost' => OrderMoney::decimal(
+                    $summary['delivery_cents']
+                ),
+                'total_quantity' => $public['total_quantity'],
+                'total_payment' => OrderMoney::decimal(
+                    $summary['total_cents']
+                ),
+                'payment_method' => 'COD',
+                'order_status' => 'pending',
+                'completed_at' => null,
             ]);
 
-            OrderAddress::create(array_merge([
+            OrderAddress::create([
                 'order_id' => $order->id,
-            ], $addressData));
+                ...$summary['address'],
+            ]);
 
-            foreach ($summary['selected_items'] as $item) {
-                $package = ProductPackage::query()
-                    ->where('id', $item->package_id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
+            $allocated = 0;
+            $cumulativeGross = 0;
 
-                if ((int) $item->quantity > (int) $package->quantity_available) {
-                    throw new RuntimeException('Sản phẩm ' . $package->sku . ' không đủ tồn kho.');
-                }
+            foreach ($summary['items'] as $item) {
+                $package = $item->package;
+
+                $gross = OrderMoney::multiply(
+                    OrderMoney::cents($package->price),
+                    (int) $item->quantity
+                );
+
+                $cumulativeGross += $gross;
+
+                // Phân bổ theo tổng lũy kế để tổng các dòng khớp tuyệt đối.
+                $target = OrderMoney::proportional(
+                    $summary['discount_cents'],
+                    $cumulativeGross,
+                    $summary['subtotal_cents']
+                );
+
+                $lineDiscount = $target - $allocated;
+                $allocated = $target;
 
                 OrderItem::create([
                     'order_id' => $order->id,
                     'package_id' => $package->id,
                     'quantity' => (int) $item->quantity,
-                    'price' => (float) $package->price,
-                ]);
+                    'price' => $package->price,
 
-                $package->decrement('quantity_available', (int) $item->quantity);
+                    'product_name' => $package->variant->product->product_name,
+                    'variant_name' => $package->variant->variant_name,
+                    'sku' => $package->sku,
+                    'size' => $package->size,
+                    'unit' => $package->unit,
 
-                InventoryTransaction::create([
-                    'package_id' => $package->id,
-                    'quantity_change' => -abs((int) $item->quantity),
-                    'transaction_type' => InventoryTransaction::TYPE_EXPORT,
-                    'note' => 'Xuất kho cho đơn hàng DH' . str_pad($order->id, 6, '0', STR_PAD_LEFT),
-                    'performed_by' => $user->id,
+                    'discount_amount' => OrderMoney::decimal($lineDiscount),
+                    'net_sales_amount' => OrderMoney::decimal(
+                        $gross - $lineDiscount
+                    ),
+                    'cost_total' => null,
                 ]);
             }
 
+            $this->stockService->reserve($order);
+
             Payment::create([
                 'order_id' => $order->id,
-                'payment_method' => $data['payment_method'],
+                'payment_method' => 'COD',
                 'transaction_id' => null,
-                'amount' => $summary['total_payment'],
-                'status' => Payment::STATUS_PENDING,
+                'amount' => $order->total_payment,
+                'status' => 'pending',
                 'paid_at' => null,
                 'failed_reason' => null,
             ]);
 
             OrderHistory::create([
                 'order_id' => $order->id,
-                'order_status' => Order::STATUS_PENDING,
+                'order_status' => 'pending',
                 'note' => 'Khách hàng đặt đơn.',
                 'created_by' => $user->id,
             ]);
 
-            if (!empty($summary['discount_model'])) {
-                $summary['discount_model']->increment('used_count');
+            if ($summary['discount']) {
+                $summary['discount']->increment('used_count');
             }
 
-            $summary['cart']
-                ->items()
-                ->whereIn('id', $summary['cart_item_ids'])
-                ->delete();
+            $deleted = $this->cartRepository->deleteItemsByIds(
+                $summary['cart'],
+                $summary['ids']
+            );
 
-            $order = $order->fresh([
-                'user:id,name,email,phone_number',
-                'deliveryMethod:id,name,description,base_price,min_order_amount,region',
-                'discount:id,discount_code,discount_description,discount_percent,max_discount_amount,min_order_value',
-                'payment:id,order_id,payment_method,transaction_id,amount,status,paid_at,failed_reason',
-                'orderAddress',
-                'histories.creator:id,name,email',
-                'items.package:id,variant_id,sku,size,unit,price,quantity_available',
-                'items.package.variant:id,product_id,variant_name',
-                'items.package.variant.product:id,product_name',
-                'items.package.variant.product.images:id,product_id,image_url,is_primary,sort_order',
-            ])->loadCount('items');
+            if ($deleted !== count($summary['ids'])) {
+                $this->fail(
+                    'cart_item_ids',
+                    'Giỏ hàng đã thay đổi. Vui lòng tải lại.'
+                );
+            }
+
+            $order->load(OrderRelations::detail())->loadCount('items');
 
             return [
                 'order' => new OrderResource($order),
+
+                // Chưa kích hoạt thanh toán trực tuyến.
                 'payment_redirect_url' => null,
             ];
-        });
+        }, 3);
     }
 
-    private function buildSummary(User $user, array $data, bool $lockPackages = false): array
-    {
-        $cartItemIds = collect($data['cart_item_ids'] ?? [])
-            ->map(fn($id) => (int) $id)
-            ->filter()
-            ->unique()
-            ->values();
+    private function buildSummary(
+        User $user,
+        array $data,
+        bool $lock
+    ): array {
+        $ids = array_values(array_unique(array_map(
+            'intval',
+            $data['cart_item_ids'] ?? []
+        )));
 
-        if ($cartItemIds->isEmpty()) {
-            throw new RuntimeException('Vui lòng chọn sản phẩm cần thanh toán.');
+        if (!$ids) {
+            $this->fail(
+                'cart_item_ids',
+                'Vui lòng chọn dòng hàng.'
+            );
         }
 
-        $cart = $this->cartRepository->getCartWithItems($user->id);
+        $cart = $lock
+            ? $this->cartRepository->lockCart($user->id)
+            : $this->cartRepository->getOrCreateCart($user->id);
 
-        if ($cart->items->isEmpty()) {
-            throw new RuntimeException('Giỏ hàng đang trống.');
+        $items = $this->cartRepository->selectedItemsForUser(
+            $user->id,
+            $ids,
+            $lock
+        );
+
+        if ($items->count() !== count($ids)) {
+            $this->fail(
+                'cart_item_ids',
+                'Một số dòng hàng không còn trong giỏ của bạn.'
+            );
         }
 
-        $selectedItems = $cart->items
-            ->whereIn('id', $cartItemIds->all())
-            ->values();
-
-        if ($selectedItems->count() !== $cartItemIds->count()) {
-            throw new RuntimeException('Một số sản phẩm không tồn tại trong giỏ hàng của bạn.');
-        }
-
-        $packageIds = $selectedItems
-            ->pluck('package_id')
-            ->unique()
-            ->values()
-            ->all();
-
-        $packagesQuery = ProductPackage::query()
-            ->whereIn('id', $packageIds);
-
-        if ($lockPackages) {
-            $packagesQuery->lockForUpdate();
-        }
-
-        $packages = $packagesQuery->get()->keyBy('id');
+        $packages = $this->stockService->availability(
+            $items->pluck('package_id')->all(),
+            $lock
+        );
 
         $subtotal = 0;
         $totalQuantity = 0;
 
-        foreach ($selectedItems as $item) {
+        foreach ($items->groupBy('package_id') as $packageId => $group) {
+            $package = $packages->get($packageId);
+            $quantity = (int) $group->sum('quantity');
+
+            if (
+                !$package
+                || !$package->variant?->product
+                || !$package->variant->product->is_show
+            ) {
+                $this->fail(
+                    'cart_item_ids',
+                    'Có sản phẩm đã ngừng kinh doanh.'
+                );
+            }
+
+            if ($quantity > (int) $package->available_to_sell) {
+                $this->fail(
+                    'cart_item_ids',
+                    "SKU {$package->sku} không đủ hàng có thể bán."
+                );
+            }
+        }
+
+        foreach ($items as $item) {
+            $quantity = (int) $item->quantity;
+
+            if ($quantity < 1) {
+                $this->fail(
+                    'cart_item_ids',
+                    'Số lượng dòng hàng không hợp lệ.'
+                );
+            }
+
             $package = $packages->get($item->package_id);
+            $item->setRelation('package', $package);
 
-            if (!$package) {
-                throw new RuntimeException('Một sản phẩm trong giỏ hàng không còn tồn tại.');
+            $subtotal = OrderMoney::add(
+                $subtotal,
+                OrderMoney::multiply(
+                    OrderMoney::cents($package->price),
+                    $quantity
+                )
+            );
+
+            $totalQuantity += $quantity;
+
+            if ($totalQuantity > 2147483647) {
+                $this->fail(
+                    'cart_item_ids',
+                    'Tổng số lượng vượt giới hạn.'
+                );
             }
-
-            if ((int) $item->quantity > (int) $package->quantity_available) {
-                throw new RuntimeException('Sản phẩm ' . $package->sku . ' không đủ tồn kho.');
-            }
-
-            $subtotal += (float) $package->price * (int) $item->quantity;
-            $totalQuantity += (int) $item->quantity;
         }
 
-        $deliveryMethod = DeliveryMethod::query()
-            ->where('id', $data['delivery_id'])
-            ->where('is_active', true)
-            ->first();
+        OrderMoney::assertOrderAmount($subtotal);
 
-        if (!$deliveryMethod) {
-            throw new RuntimeException('Phương thức giao hàng không hợp lệ hoặc đã bị tắt.');
+        $address = $this->resolveAddress($user, $data, $lock);
+
+        $deliveryQuery = DeliveryMethod::query()
+            ->whereKey($data['delivery_id'])
+            ->where('is_active', true);
+
+        if ($lock) {
+            $deliveryQuery->sharedLock();
         }
+
+        $delivery = $deliveryQuery->first();
+
+        if (!$delivery) {
+            $this->fail(
+                'delivery_id',
+                'Phương thức giao hàng không hợp lệ.'
+            );
+        }
+
+        $this->assertRegion($delivery, $address);
 
         $discount = null;
-        $discountAmount = 0;
+        $discountCents = 0;
 
         if (!empty($data['discount_code'])) {
-            $discount = $this->validateDiscount(
-                $user,
-                $data['discount_code'],
-                $subtotal,
-                $lockPackages
-            );
+            $query = Discount::query()
+                ->where(
+                    'discount_code',
+                    strtoupper(trim($data['discount_code']))
+                );
 
-            $discountAmount = min(
-                $subtotal * ((int) $discount->discount_percent / 100),
-                (float) $discount->max_discount_amount
+            if ($lock) {
+                $query->lockForUpdate();
+            }
+
+            $discount = $query->first();
+
+            if (
+                !$discount
+                || !$discount->is_active
+                || !$discount->expire_date
+                || $discount->expire_date->toDateString() < now()->toDateString()
+                || (
+                    $discount->user_id !== null
+                    && (int) $discount->user_id !== (int) $user->id
+                )
+                || (
+                    $discount->usage_limit !== null
+                    && (int) $discount->used_count >= (int) $discount->usage_limit
+                )
+            ) {
+                $this->fail(
+                    'discount_code',
+                    'Mã giảm giá không hợp lệ, đã hết hạn hoặc hết lượt.'
+                );
+            }
+
+            $percent = (int) $discount->discount_percent;
+
+            if ($percent < 1 || $percent > 100) {
+                $this->fail(
+                    'discount_code',
+                    'Phần trăm giảm giá không hợp lệ.'
+                );
+            }
+
+            if ($subtotal < OrderMoney::cents($discount->min_order_value)) {
+                $this->fail(
+                    'discount_code',
+                    'Chưa đạt mức tiền hàng tối thiểu của mã giảm giá.'
+                );
+            }
+
+            // Làm tròn half-up đến 2 chữ số thập phân.
+            $discountCents = min(
+                intdiv($subtotal * $percent + 50, 100),
+                OrderMoney::cents($discount->max_discount_amount),
+                $subtotal
             );
         }
 
-        $freeShippingThreshold = (float) ($deliveryMethod->min_order_amount ?? 0);
+        $net = $subtotal - $discountCents;
+        $minimum = OrderMoney::cents($delivery->min_order_amount);
 
-        $deliveryCost = (
-            $freeShippingThreshold > 0 &&
-            $subtotal >= $freeShippingThreshold
-        )
-            ? 0
-            : (float) $deliveryMethod->base_price;
+        if ($net < $minimum) {
+            $this->fail(
+                'delivery_id',
+                'Tiền hàng sau giảm giá chưa đạt mức tối thiểu của phương thức giao hàng.'
+            );
+        }
 
-        $totalPayment = max(0, $subtotal + $deliveryCost - $discountAmount);
+        // Phí cố định theo phương thức.
+        // min_order_amount là điều kiện áp dụng, không phải ngưỡng miễn phí.
+        $deliveryCents = OrderMoney::cents($delivery->base_price);
+        $totalCents = OrderMoney::add($net, $deliveryCents);
 
-        $cart->setRelation('items', $selectedItems);
+        OrderMoney::assertOrderAmount($totalCents);
+
+        $cart->setRelation('items', $items);
 
         return [
             'cart' => $cart,
-            'selected_items' => $selectedItems,
-            'cart_item_ids' => $cartItemIds->all(),
+            'items' => $items,
+            'ids' => $ids,
+            'address' => $address,
+            'delivery' => $delivery,
+            'discount' => $discount,
+            'subtotal_cents' => $subtotal,
+            'discount_cents' => $discountCents,
+            'delivery_cents' => $deliveryCents,
+            'total_cents' => $totalCents,
 
-            'cart_data' => new CartResource($cart),
+            'public' => [
+                'cart_item_ids' => $ids,
+                'cart_data' => new CartResource($cart),
+                'subtotal' => (float) OrderMoney::decimal($subtotal),
+                'total_quantity' => $totalQuantity,
 
-            'subtotal' => $subtotal,
-            'total_quantity' => $totalQuantity,
+                'delivery_method' => [
+                    'id' => $delivery->id,
+                    'name' => $delivery->name,
+                    'description' => $delivery->description,
+                    'base_price' => (float) $delivery->base_price,
+                    'min_order_amount' => (float) $delivery->min_order_amount,
+                    'region' => $delivery->region,
+                ],
 
-            'delivery_method' => [
-                'id' => $deliveryMethod->id,
-                'name' => $deliveryMethod->name,
-                'description' => $deliveryMethod->description,
-                'base_price' => (float) $deliveryMethod->base_price,
-                'min_order_amount' => $freeShippingThreshold,
-                'region' => $deliveryMethod->region,
+                'delivery_cost' => (float) OrderMoney::decimal(
+                    $deliveryCents
+                ),
+
+                'discount' => $discount ? [
+                    'id' => $discount->id,
+                    'discount_code' => $discount->discount_code,
+                    'discount_description' => $discount->discount_description,
+                    'discount_percent' => (int) $discount->discount_percent,
+                    'max_discount_amount' => (float) $discount->max_discount_amount,
+                    'min_order_value' => (float) $discount->min_order_value,
+                ] : null,
+
+                'discount_amount' => (float) OrderMoney::decimal(
+                    $discountCents
+                ),
+
+                'total_payment' => (float) OrderMoney::decimal(
+                    $totalCents
+                ),
             ],
-
-            'delivery_cost' => $deliveryCost,
-
-            'free_shipping_threshold' => $freeShippingThreshold,
-
-            'missing_for_free_shipping' => $freeShippingThreshold > 0
-                ? max(0, $freeShippingThreshold - $subtotal)
-                : 0,
-
-            'discount_model' => $discount,
-
-            'discount' => $discount ? [
-                'id' => $discount->id,
-                'discount_code' => $discount->discount_code,
-                'discount_description' => $discount->discount_description,
-                'discount_percent' => (int) $discount->discount_percent,
-                'max_discount_amount' => (float) $discount->max_discount_amount,
-                'min_order_value' => (float) $discount->min_order_value,
-            ] : null,
-
-            'discount_amount' => $discountAmount,
-            'total_payment' => $totalPayment,
         ];
     }
 
-    private function publicSummary(array $summary): array
-    {
-        unset(
-            $summary['cart'],
-            $summary['selected_items'],
-            $summary['discount_model']
-        );
-
-        return $summary;
-    }
-
-    private function validateDiscount(
+    private function resolveAddress(
         User $user,
-        string $code,
-        float $subtotal,
-        bool $lock = false
-    ): Discount {
-        $query = Discount::query()
-            ->where('discount_code', strtoupper(trim($code)));
+        array $data,
+        bool $lock
+    ): array {
+        $usesSavedAddress = !empty($data['shipping_address_id']);
 
-        if ($lock) {
-            $query->lockForUpdate();
-        }
+        if ($usesSavedAddress) {
+            $query = ShippingAddress::query()
+                ->whereKey($data['shipping_address_id'])
+                ->where('user_id', $user->id);
 
-        $discount = $query->first();
-
-        if (!$discount) {
-            throw new RuntimeException('Mã giảm giá không tồn tại.');
-        }
-
-        if (!$discount->is_active) {
-            throw new RuntimeException('Mã giảm giá đã bị tắt.');
-        }
-
-        if ($discount->expire_date && $discount->expire_date->lt(now()->startOfDay())) {
-            throw new RuntimeException('Mã giảm giá đã hết hạn.');
-        }
-
-        if ($discount->user_id !== null && (int) $discount->user_id !== (int) $user->id) {
-            throw new RuntimeException('Mã giảm giá không áp dụng cho tài khoản này.');
-        }
-
-        if (
-            $discount->usage_limit !== null &&
-            (int) $discount->used_count >= (int) $discount->usage_limit
-        ) {
-            throw new RuntimeException('Mã giảm giá đã hết lượt sử dụng.');
-        }
-
-        if ($subtotal < (float) $discount->min_order_value) {
-            throw new RuntimeException('Đơn hàng chưa đạt giá trị tối thiểu để áp dụng mã giảm giá.');
-        }
-
-        return $discount;
-    }
-
-    private function resolveAddressData(User $user, array $data): array
-    {
-        if (!empty($data['shipping_address_id'])) {
-            $address = ShippingAddress::query()
-                ->where('id', $data['shipping_address_id'])
-                ->where('user_id', $user->id)
-                ->first();
-
-            if (!$address) {
-                throw new RuntimeException('Địa chỉ nhận hàng không hợp lệ.');
+            if ($lock) {
+                $query->sharedLock();
             }
 
-            return [
-                'receiver_name' => $address->receiver_name,
-                'receiver_phone' => $address->receiver_phone,
-                'province' => $address->province,
-                'district' => $address->district,
-                'ward' => $address->ward,
-                'province_id' => $address->province_id,
-                'district_id' => $address->district_id,
-                'ward_id' => $address->ward_id,
-                'address_detail' => $address->address_detail,
-            ];
+            $savedAddress = $query->first();
+
+            if (!$savedAddress) {
+                $this->fail(
+                    'shipping_address_id',
+                    'Địa chỉ nhận hàng không thuộc tài khoản của bạn hoặc đã bị xóa.'
+                );
+            }
+
+            // Yêu cầu người dùng cập nhật địa chỉ cũ.
+            // Không tự suy đoán địa danh mới từ tên quận/huyện cũ.
+            if (
+                trim((string) $savedAddress->district) !== ''
+                || trim((string) $savedAddress->district_id) !== ''
+                || trim((string) $savedAddress->province_id) === ''
+                || trim((string) $savedAddress->ward_id) === ''
+            ) {
+                $this->fail(
+                    'shipping_address_id',
+                    'Vui lòng cập nhật địa chỉ nhận hàng theo tỉnh/thành và phường/xã mới trước khi thanh toán.'
+                );
+            }
+
+            $source = $savedAddress->only([
+                'receiver_name',
+                'receiver_phone',
+                'province_id',
+                'ward_id',
+                'address_detail',
+            ]);
+        } else {
+            $source = $data;
+
+            foreach (['district', 'district_id'] as $field) {
+                if (
+                    isset($source[$field])
+                    && $source[$field] !== ''
+                ) {
+                    $this->fail(
+                        $field,
+                        'Địa chỉ mới chỉ sử dụng tỉnh/thành và phường/xã.'
+                    );
+                }
+            }
+        }
+
+        foreach (
+            [
+                'receiver_name',
+                'receiver_phone',
+                'province_id',
+                'ward_id',
+                'address_detail',
+            ] as $field
+        ) {
+            $value = $source[$field] ?? null;
+
+            if (
+                (!is_string($value) && !is_int($value))
+                || trim((string) $value) === ''
+            ) {
+                $this->fail(
+                    $usesSavedAddress ? 'shipping_address_id' : $field,
+                    'Vui lòng bổ sung đầy đủ thông tin địa chỉ nhận hàng.'
+                );
+            }
+        }
+
+        // Xác minh mã địa danh và quan hệ phường/xã thuộc tỉnh/thành.
+        // Tên địa danh được lấy từ danh mục.
+        try {
+            $location = $this->locationService->resolve(
+                trim((string) $source['province_id']),
+                trim((string) $source['ward_id'])
+            );
+        } catch (ValidationException $exception) {
+            if ($usesSavedAddress) {
+                $this->fail(
+                    'shipping_address_id',
+                    'Tỉnh/thành hoặc phường/xã của địa chỉ đã lưu không còn hợp lệ. Vui lòng cập nhật địa chỉ.'
+                );
+            }
+
+            throw $exception;
         }
 
         return [
-            'receiver_name' => $data['receiver_name'],
-            'receiver_phone' => $data['receiver_phone'],
-            'province' => $data['province'],
-            'district' => $data['district'],
-            'ward' => $data['ward'],
-            'province_id' => $data['province_id'] ?? null,
-            'district_id' => $data['district_id'] ?? null,
-            'ward_id' => $data['ward_id'] ?? null,
-            'address_detail' => $data['address_detail'],
+            'receiver_name' => trim((string) $source['receiver_name']),
+            'receiver_phone' => trim((string) $source['receiver_phone']),
+
+            'province' => $location['province'],
+            'province_id' => $location['province_id'],
+
+            'ward' => $location['ward'],
+            'ward_id' => $location['ward_id'],
+
+            'district' => null,
+            'district_id' => null,
+
+            'address_detail' => trim((string) $source['address_detail']),
         ];
+    }
+
+    private function assertRegion(
+        DeliveryMethod $method,
+        array $address
+    ): void {
+        // NULL là phương thức không giới hạn vùng.
+        if ($method->region === null) {
+            return;
+        }
+
+        $regions = config('shipping.regions', []);
+        $allowed = $regions[$method->region] ?? null;
+        $provinceId = $address['province_id'] ?? null;
+
+        if (!is_array($allowed)) {
+            $this->fail(
+                'delivery_id',
+                'Vùng giao hàng chưa được cấu hình.'
+            );
+        }
+
+        if (
+            !$provinceId
+            || !in_array(
+                (string) $provinceId,
+                array_map('strval', $allowed),
+                true
+            )
+        ) {
+            $this->fail(
+                'delivery_id',
+                'Phương thức này không phục vụ địa chỉ đã chọn.'
+            );
+        }
+    }
+
+    private function fail(string $field, string $message): never
+    {
+        throw ValidationException::withMessages([
+            $field => [$message],
+        ]);
     }
 }

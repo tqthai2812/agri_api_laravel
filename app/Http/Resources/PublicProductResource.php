@@ -10,60 +10,71 @@ class PublicProductResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $images = $this->relationLoaded('images')
+        $images = $this->resource->relationLoaded('images')
             ? $this->images
             : collect();
 
-        $variants = $this->relationLoaded('variants')
+        $variants = $this->resource->relationLoaded('variants')
             ? $this->variants
             : collect();
+
+        $packages = $variants->flatMap(function ($variant) {
+            return $variant->relationLoaded('packages')
+                ? $variant->packages
+                : collect();
+        });
 
         $primaryImage = $images->firstWhere('is_primary', true)
             ?? $images->sortBy('sort_order')->first();
 
-        $packages = $variants->flatMap(fn($variant) => $variant->packages ?? collect());
-
         $minPrice = $this->resource->getAttribute('min_price');
         $maxPrice = $this->resource->getAttribute('max_price');
         $totalStock = $this->resource->getAttribute('total_stock');
+        $availableStock = $this->resource->getAttribute('available_stock');
         $firstPackageId = $this->resource->getAttribute('first_package_id');
         $primaryImagePath = $this->resource->getAttribute('primary_image_path');
 
-        if ($minPrice === null && $packages->isNotEmpty()) {
-            $minPrice = $packages->min('price');
-        }
-
-        if ($maxPrice === null && $packages->isNotEmpty()) {
-            $maxPrice = $packages->max('price');
-        }
-
-        if ($totalStock === null && $packages->isNotEmpty()) {
-            $totalStock = $packages->sum('quantity_available');
-        }
+        $minPrice ??= $packages->min('price');
+        $maxPrice ??= $packages->max('price');
+        $totalStock ??= $packages->sum('quantity_available');
+        $availableStock ??= $packages->sum(
+            fn($package) => (int) ($package->available_to_sell ?? 0)
+        );
 
         if ($firstPackageId === null && $packages->isNotEmpty()) {
-            $firstPackageId = $packages
-                ->sortBy(function ($package) {
-                    $outOfStockScore = (int) ((int) $package->quantity_available <= 0) * 1000000000;
+            $firstPackageId = $packages->sort(function ($a, $b) {
+                $aUnavailable = (int) (($a->available_to_sell ?? 0) <= 0);
+                $bUnavailable = (int) (($b->available_to_sell ?? 0) <= 0);
 
-                    return $outOfStockScore + (float) $package->price;
-                })
-                ->first()?->id;
+                return ($aUnavailable <=> $bUnavailable)
+                    ?: ((float) $a->price <=> (float) $b->price)
+                    ?: ($a->id <=> $b->id);
+            })->first()?->id;
         }
+
+        $category = $this->resource->relationLoaded('category')
+            ? $this->category
+            : null;
+
+        $subcategory = $this->resource->relationLoaded('subcategory')
+            ? $this->subcategory
+            : null;
+
+        $origin = $this->resource->relationLoaded('origin')
+            ? $this->origin
+            : null;
 
         return [
             'id' => $this->id,
-
             'name' => $this->product_name,
             'product_name' => $this->product_name,
-
+            'brand' => $this->brand,
             'description' => $this->description,
 
             'usage_instructions' => $this->when(
                 $this->resource->getAttribute('usage_instructions') !== null,
                 $this->usage_instructions
             ),
-
             'safety_warning' => $this->when(
                 $this->resource->getAttribute('safety_warning') !== null,
                 $this->safety_warning
@@ -73,66 +84,71 @@ class PublicProductResource extends JsonResource
             'review_count' => (int) ($this->review_count ?? 0),
             'is_show' => (bool) $this->is_show,
 
-            'category' => $this->category ? [
-                'id' => $this->category->id,
-                'name' => $this->category->category_name,
-                'category_name' => $this->category->category_name,
-                'slug' => $this->category->category_slug,
-                'category_slug' => $this->category->category_slug,
+            'category' => $category ? [
+                'id' => $category->id,
+                'name' => $category->category_name,
+                'category_name' => $category->category_name,
+                'slug' => $category->category_slug,
+                'category_slug' => $category->category_slug,
             ] : null,
 
-            'subcategory' => $this->subcategory ? [
-                'id' => $this->subcategory->id,
-                'name' => $this->subcategory->subcategory_name,
-                'subcategory_name' => $this->subcategory->subcategory_name,
-                'slug' => $this->subcategory->subcategory_slug,
-                'subcategory_slug' => $this->subcategory->subcategory_slug,
+            'subcategory' => $subcategory ? [
+                'id' => $subcategory->id,
+                'name' => $subcategory->subcategory_name,
+                'subcategory_name' => $subcategory->subcategory_name,
+                'slug' => $subcategory->subcategory_slug,
+                'subcategory_slug' => $subcategory->subcategory_slug,
             ] : null,
 
-            'origin' => $this->origin ? [
-                'id' => $this->origin->id,
-                'name' => $this->origin->origin_name,
-                'origin_name' => $this->origin->origin_name,
-                'image' => $this->imageUrl($this->origin->origin_image),
-                'origin_image' => $this->imageUrl($this->origin->origin_image),
+            'origin' => $origin ? [
+                'id' => $origin->id,
+                'name' => $origin->origin_name,
+                'origin_name' => $origin->origin_name,
+                'image' => $this->imageUrl($origin->origin_image),
+                'origin_image' => $this->imageUrl($origin->origin_image),
             ] : null,
 
             'primary_image' => $this->imageUrl(
                 $primaryImagePath ?: $primaryImage?->image_url
             ),
 
-            'images' => $this->relationLoaded('images')
-                ? $images->map(fn($image) => [
-                    'id' => $image->id,
-                    'image_url' => $this->imageUrl($image->image_url),
-                    'is_primary' => (bool) $image->is_primary,
-                    'sort_order' => (int) $image->sort_order,
-                ])->values()
-                : [],
+            'images' => $images->map(fn($image) => [
+                'id' => $image->id,
+                'image_url' => $this->imageUrl($image->image_url),
+                'is_primary' => (bool) $image->is_primary,
+                'sort_order' => (int) $image->sort_order,
+            ])->values(),
 
-            'variants' => $this->relationLoaded('variants')
-                ? $variants->map(fn($variant) => [
+            'variants' => $variants->map(function ($variant) {
+                $variantPackages = $variant->relationLoaded('packages')
+                    ? $variant->packages
+                    : collect();
+
+                return [
                     'id' => $variant->id,
                     'variant_name' => $variant->variant_name,
                     'name' => $variant->variant_name,
-
-                    'packages' => $variant->packages?->map(fn($package) => [
+                    'packages' => $variantPackages->map(fn($package) => [
                         'id' => $package->id,
                         'sku' => $package->sku,
                         'size' => (float) $package->size,
                         'unit' => $package->unit,
                         'price' => (float) $package->price,
                         'quantity_available' => (int) $package->quantity_available,
+                        'available_to_sell' => (int) ($package->available_to_sell ?? 0),
                         'barcode' => $package->barcode,
                         'box_barcode' => $package->box_barcode,
-                    ])->values() ?? [],
-                ])->values()
-                : [],
+                    ])->values(),
+                ];
+            })->values(),
 
-            'min_price' => (float) ($minPrice ?: 0),
-            'max_price' => (float) ($maxPrice ?: 0),
-            'total_stock' => (int) ($totalStock ?: 0),
-            'first_package_id' => $firstPackageId ? (int) $firstPackageId : null,
+            'min_price' => (float) ($minPrice ?? 0),
+            'max_price' => (float) ($maxPrice ?? 0),
+            'total_stock' => (int) ($totalStock ?? 0),
+            'available_stock' => (int) ($availableStock ?? 0),
+            'first_package_id' => $firstPackageId
+                ? (int) $firstPackageId
+                : null,
 
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),

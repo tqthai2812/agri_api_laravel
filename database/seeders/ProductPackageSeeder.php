@@ -13,109 +13,99 @@ class ProductPackageSeeder extends Seeder
     {
         $data = [
             [
-                'product_name' => 'Phân bón hữu cơ cao cấp',
-                'variant_name' => 'Gói nhỏ',
+                'product_name' => 'Phân hữu cơ vi sinh cải tạo đất',
+                'variant_name' => 'Túi nhỏ',
                 'packages' => [
                     [
-                        'sku' => 'PBHC-GOI-1KG',
-                        'size' => 1,
-                        'unit' => 'kg',
-                        'price' => 45000,
-                        'quantity_available' => 100,
-                        'barcode' => '893000000001',
-                        'box_barcode' => null,
-                    ],
-                    [
-                        'sku' => 'PBHC-GOI-5KG',
+                        'sku' => 'HCVS-TUI-5KG',
                         'size' => 5,
                         'unit' => 'kg',
-                        'price' => 190000,
-                        'quantity_available' => 50,
-                        'barcode' => '893000000002',
+                        'price' => 85000,
+                        'barcode' => '8938501000011',
                         'box_barcode' => null,
                     ],
                 ],
             ],
             [
-                'product_name' => 'Phân bón hữu cơ cao cấp',
-                'variant_name' => 'Bao lớn',
+                'product_name' => 'Phân hữu cơ vi sinh cải tạo đất',
+                'variant_name' => 'Bao nông trại',
                 'packages' => [
                     [
-                        'sku' => 'PBHC-BAO-25KG',
+                        'sku' => 'HCVS-BAO-25KG',
                         'size' => 25,
                         'unit' => 'kg',
-                        'price' => 850000,
-                        'quantity_available' => 20,
-                        'barcode' => '893000000003',
-                        'box_barcode' => 'BOX893000000003',
+                        'price' => 365000,
+                        'barcode' => '8938501000012',
+                        'box_barcode' => 'BOX8938501000012',
                     ],
                 ],
             ],
             [
-                'product_name' => 'Phân NPK tổng hợp 16-16-8',
-                'variant_name' => 'Túi tiêu chuẩn',
+                'product_name' => 'Phân NPK 16-16-8',
+                'variant_name' => 'Gói dùng thử',
                 'packages' => [
                     [
-                        'sku' => 'NPK-16-16-8-1KG',
+                        'sku' => 'NPK168-GOI-1KG',
                         'size' => 1,
                         'unit' => 'kg',
-                        'price' => 52000,
-                        'quantity_available' => 80,
-                        'barcode' => '893000000004',
-                        'box_barcode' => null,
-                    ],
-                    [
-                        'sku' => 'NPK-16-16-8-5KG',
-                        'size' => 5,
-                        'unit' => 'kg',
-                        'price' => 230000,
-                        'quantity_available' => 35,
-                        'barcode' => '893000000005',
+                        'price' => 32000,
+                        'barcode' => '8938501000021',
                         'box_barcode' => null,
                     ],
                 ],
             ],
             [
-                'product_name' => 'Thuốc trừ sâu sinh học',
-                'variant_name' => 'Chai nhỏ',
+                'product_name' => 'Phân NPK 16-16-8',
+                'variant_name' => 'Bao tiêu chuẩn',
                 'packages' => [
                     [
-                        'sku' => 'TTS-SH-500ML',
+                        'sku' => 'NPK168-BAO-25KG',
+                        'size' => 25,
+                        'unit' => 'kg',
+                        'price' => 515000,
+                        'barcode' => '8938501000022',
+                        'box_barcode' => 'BOX8938501000022',
+                    ],
+                ],
+            ],
+            [
+                'product_name' => 'Chế phẩm sinh học hỗ trợ trừ sâu',
+                'variant_name' => 'Chai phun vườn nhà',
+                'packages' => [
+                    [
+                        'sku' => 'APBIO-CHAI-500ML',
                         'size' => 500,
                         'unit' => 'ml',
-                        'price' => 75000,
-                        'quantity_available' => 60,
-                        'barcode' => '893000000006',
+                        'price' => 98000,
+                        'barcode' => '8938501000031',
                         'box_barcode' => null,
                     ],
                 ],
             ],
             [
-                'product_name' => 'Thuốc trừ sâu sinh học',
-                'variant_name' => 'Can lớn',
-                'packages' => [
-                    [
-                        'sku' => 'TTS-SH-5L',
-                        'size' => 5,
-                        'unit' => 'l',
-                        'price' => 420000,
-                        'quantity_available' => 15,
-                        'barcode' => '893000000007',
-                        'box_barcode' => 'BOX893000000007',
-                    ],
-                ],
-            ],
-            [
-                'product_name' => 'Hạt giống rau cải xanh',
+                'product_name' => 'Hạt giống cải xanh chịu nhiệt',
                 'variant_name' => 'Gói hạt giống',
                 'packages' => [
                     [
-                        'sku' => 'HG-CAIXANH-50G',
-                        'size' => 50,
+                        'sku' => 'DB-CAIXANH-20G',
+                        'size' => 20,
                         'unit' => 'g',
-                        'price' => 25000,
-                        'quantity_available' => 120,
-                        'barcode' => '893000000008',
+                        'price' => 18000,
+                        'barcode' => '8938501000041',
+                        'box_barcode' => null,
+                    ],
+                ],
+            ],
+            [
+                'product_name' => 'Kéo cắt cành làm vườn',
+                'variant_name' => 'Kéo cầm tay',
+                'packages' => [
+                    [
+                        'sku' => 'GF-KEO-CATCANH',
+                        'size' => 1,
+                        'unit' => 'piece',
+                        'price' => 125000,
+                        'barcode' => '8938501000051',
                         'box_barcode' => null,
                     ],
                 ],
@@ -126,7 +116,9 @@ class ProductPackageSeeder extends Seeder
             $product = Product::where('product_name', $item['product_name'])->first();
 
             if (!$product) {
-                continue;
+                throw new \RuntimeException(
+                    "Không tìm thấy sản phẩm '{$item['product_name']}'."
+                );
             }
 
             $variant = ProductVariant::where('product_id', $product->id)
@@ -134,22 +126,24 @@ class ProductPackageSeeder extends Seeder
                 ->first();
 
             if (!$variant) {
-                continue;
+                throw new \RuntimeException(
+                    "Không tìm thấy biến thể '{$item['variant_name']}' của sản phẩm '{$item['product_name']}'."
+                );
             }
 
             foreach ($item['packages'] as $package) {
                 ProductPackage::updateOrCreate(
-                    [
-                        'sku' => $package['sku'],
-                    ],
+                    ['sku' => $package['sku']],
                     [
                         'variant_id' => $variant->id,
                         'size' => $package['size'],
                         'unit' => $package['unit'],
                         'price' => $package['price'],
-                        'quantity_available' => $package['quantity_available'],
+                        // InventorySeeder sẽ tạo lô và đồng bộ tồn vật lý.
+                        'quantity_available' => 0,
                         'barcode' => $package['barcode'],
                         'box_barcode' => $package['box_barcode'],
+                        'reorder_level' => 5,
                     ]
                 );
             }

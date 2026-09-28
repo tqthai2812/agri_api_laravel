@@ -6,28 +6,84 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\PublicProductResource;
 use App\Models\Product;
 use App\Models\ProductImage;
-use App\Models\ProductPackage;
+use App\Support\ProductStockQuery;
 use App\Support\VietnameseText;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class PublicProductController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $perPage = min(max((int) $request->input('per_page', 9), 1), 24);
-
-        $originIds = $this->parseIds($request->input('origin_ids', []));
-
-        if ($request->filled('origin_id')) {
-            $originIds[] = (int) $request->input('origin_id');
-            $originIds = array_values(array_unique(array_filter($originIds)));
+        if (is_string($request->input('origin_ids'))) {
+            $request->merge([
+                'origin_ids' => array_values(array_filter(
+                    array_map('trim', explode(',', $request->input('origin_ids'))),
+                    fn($value) => $value !== ''
+                )),
+            ]);
         }
 
-        $rawSearch = trim((string) $request->input('search', ''));
+        $data = $request->validate([
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:24'],
+            'category' => ['nullable', 'string', 'max:255'],
+            'category_id' => ['nullable', 'integer', 'min:1'],
+            'subcategory_id' => ['nullable', 'integer', 'min:1'],
+            'origin_id' => ['nullable', 'integer', 'min:1'],
+            'origin_ids' => ['nullable', 'array'],
+            'origin_ids.*' => ['integer', 'min:1'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'min_price' => [
+                'nullable',
+                'numeric',
+                'min:0',
+                'max:9999999999.99',
+            ],
+            'max_price' => [
+                'nullable',
+                'numeric',
+                'min:0',
+                'max:9999999999.99',
+            ],
+            'sort' => [
+                'nullable',
+                Rule::in([
+                    'default',
+                    'price-asc',
+                    'price-desc',
+                    'rating',
+                    'sale',
+                    'newest',
+                ]),
+            ],
+        ]);
+
+        if (
+            isset($data['min_price'], $data['max_price'])
+            && $data['max_price'] < $data['min_price']
+        ) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'max_price' => ['Giá tối đa phải lớn hơn hoặc bằng giá tối thiểu.'],
+            ]);
+        }
+
+        $originIds = array_map('intval', $data['origin_ids'] ?? []);
+
+        if (!empty($data['origin_id'])) {
+            $originIds[] = (int) $data['origin_id'];
+        }
+
+        $originIds = array_values(array_unique($originIds));
+
+        $rawSearch = trim($data['search'] ?? '');
         $normalizedSearch = VietnameseText::normalize($rawSearch);
         $searchTerms = VietnameseText::terms($rawSearch);
         $booleanSearch = VietnameseText::booleanFullTextQuery($rawSearch);
+        $hasSearch = $rawSearch !== '' && count($searchTerms) > 0;
 
         $products = Product::query()
             ->select([
@@ -36,6 +92,7 @@ class PublicProductController extends Controller
                 'products.subcategory_id',
                 'products.origin_id',
                 'products.product_name',
+                'products.brand',
                 'products.average_rating',
                 'products.review_count',
                 'products.is_show',
@@ -49,29 +106,29 @@ class PublicProductController extends Controller
                     ->whereColumn('product_images.product_id', 'products.id')
                     ->orderByDesc('is_primary')
                     ->orderBy('sort_order')
+                    ->orderBy('id')
                     ->limit(1),
 
-                'min_price' => ProductPackage::query()
-                    ->selectRaw('MIN(product_packages.price)')
-                    ->join('product_variants', 'product_variants.id', '=', 'product_packages.variant_id')
-                    ->whereColumn('product_variants.product_id', 'products.id'),
+                'min_price' => $this->packageSubquery()
+                    ->selectRaw('MIN(stock.price)'),
 
-                'max_price' => ProductPackage::query()
-                    ->selectRaw('MAX(product_packages.price)')
-                    ->join('product_variants', 'product_variants.id', '=', 'product_packages.variant_id')
-                    ->whereColumn('product_variants.product_id', 'products.id'),
+                'max_price' => $this->packageSubquery()
+                    ->selectRaw('MAX(stock.price)'),
 
-                'total_stock' => ProductPackage::query()
-                    ->selectRaw('COALESCE(SUM(product_packages.quantity_available), 0)')
-                    ->join('product_variants', 'product_variants.id', '=', 'product_packages.variant_id')
-                    ->whereColumn('product_variants.product_id', 'products.id'),
+                // Giữ total_stock là tồn vật lý để tránh đổi nghĩa API cũ.
+                'total_stock' => $this->packageSubquery()
+                    ->selectRaw('COALESCE(SUM(stock.quantity_available), 0)'),
 
-                'first_package_id' => ProductPackage::query()
-                    ->select('product_packages.id')
-                    ->join('product_variants', 'product_variants.id', '=', 'product_packages.variant_id')
-                    ->whereColumn('product_variants.product_id', 'products.id')
-                    ->orderByRaw('CASE WHEN product_packages.quantity_available > 0 THEN 0 ELSE 1 END')
-                    ->orderBy('product_packages.price')
+                'available_stock' => $this->packageSubquery()
+                    ->selectRaw('COALESCE(SUM(stock.available_to_sell), 0)'),
+
+                'first_package_id' => $this->packageSubquery()
+                    ->select('stock.id')
+                    ->orderByRaw(
+                        'CASE WHEN stock.available_to_sell > 0 THEN 0 ELSE 1 END'
+                    )
+                    ->orderBy('stock.price')
+                    ->orderBy('stock.id')
                     ->limit(1),
             ])
             ->with([
@@ -81,72 +138,91 @@ class PublicProductController extends Controller
             ])
             ->where('products.is_show', true);
 
-        if ($rawSearch !== '' && count($searchTerms)) {
-            $this->applySearch($products, $rawSearch, $normalizedSearch, $searchTerms, $booleanSearch);
+        if ($hasSearch) {
+            $this->applySearch(
+                $products,
+                $rawSearch,
+                $normalizedSearch,
+                $searchTerms,
+                $booleanSearch
+            );
         }
 
-        $products
-            ->when($request->filled('category'), function ($query) use ($request) {
-                $category = $request->input('category');
+        if (isset($data['category']) && $data['category'] !== '') {
+            $category = $data['category'];
 
-                $query->whereHas('category', function ($categoryQuery) use ($category) {
-                    $categoryQuery->where('category_slug', $category);
+            $products->whereHas('category', function ($query) use ($category) {
+                $query->where(function ($nested) use ($category) {
+                    $nested->where('category_slug', $category);
 
-                    if (is_numeric($category)) {
-                        $categoryQuery->orWhere('id', (int) $category);
+                    if (ctype_digit($category)) {
+                        $nested->orWhere('id', (int) $category);
                     }
                 });
-            })
-            ->when($request->filled('category_id'), function ($query) use ($request) {
-                $query->where('products.category_id', $request->input('category_id'));
-            })
-            ->when($request->filled('subcategory_id'), function ($query) use ($request) {
-                $query->where('products.subcategory_id', $request->input('subcategory_id'));
-            })
-            ->when(count($originIds), function ($query) use ($originIds) {
-                $query->whereIn('products.origin_id', $originIds);
-            })
-            ->when($request->filled('min_price'), function ($query) use ($request) {
-                $minPrice = (float) $request->input('min_price');
+            });
+        }
 
-                if ($minPrice > 0) {
-                    $query->whereHas('variants.packages', function ($packageQuery) use ($minPrice) {
-                        $packageQuery->where('price', '>=', $minPrice);
-                    });
+        foreach (['category_id', 'subcategory_id'] as $field) {
+            if (!empty($data[$field])) {
+                $products->where("products.$field", $data[$field]);
+            }
+        }
+
+        if ($originIds) {
+            $products->whereIn('products.origin_id', $originIds);
+        }
+
+        if (isset($data['min_price']) || isset($data['max_price'])) {
+            $products->whereHas('variants.packages', function ($query) use ($data) {
+                if (isset($data['min_price'])) {
+                    $query->where('price', '>=', $data['min_price']);
                 }
-            })
-            ->when($request->filled('max_price'), function ($query) use ($request) {
-                $maxPrice = (float) $request->input('max_price');
 
-                if ($maxPrice > 0) {
-                    $query->whereHas('variants.packages', function ($packageQuery) use ($maxPrice) {
-                        $packageQuery->where('price', '<=', $maxPrice);
-                    });
+                if (isset($data['max_price'])) {
+                    $query->where('price', '<=', $data['max_price']);
                 }
             });
+        }
 
-        $sort = $request->input('sort', 'default');
+        switch ($data['sort'] ?? 'default') {
+            case 'price-asc':
+                $products->orderBy('min_price');
+                break;
 
-        match ($sort) {
-            'price-asc' => $products->orderBy('min_price'),
-            'price-desc' => $products->orderByDesc('min_price'),
-            'rating' => $products
-                ->orderByDesc('products.average_rating')
-                ->orderByDesc('products.review_count'),
-            'sale' => $products
-                ->orderByDesc('products.review_count')
-                ->latest('products.created_at'),
-            'newest' => $products->latest('products.created_at'),
-            default => $this->applyDefaultSort($products, $rawSearch !== '' && count($searchTerms)),
-        };
+            case 'price-desc':
+                $products->orderByDesc('min_price');
+                break;
 
-        $products = $products->paginate($perPage);
+            case 'rating':
+                $products->orderByDesc('products.average_rating')
+                    ->orderByDesc('products.review_count');
+                break;
 
-        return PublicProductResource::collection($products)
-            ->additional([
-                'message' => 'Lấy sản phẩm public thành công.',
-            ])
-            ->response();
+            case 'sale':
+                // Giữ logic cũ: đây chưa phải số lượng bán thực tế.
+                $products->orderByDesc('products.review_count')
+                    ->latest('products.created_at');
+                break;
+
+            case 'newest':
+                $products->latest('products.created_at');
+                break;
+
+            default:
+                if ($hasSearch) {
+                    $products->orderByDesc('search_score');
+                }
+
+                $products->latest('products.created_at');
+        }
+
+        $products->orderByDesc('products.id');
+
+        return PublicProductResource::collection(
+            $products->paginate((int) ($data['per_page'] ?? 9))
+        )->additional([
+            'message' => 'Lấy sản phẩm public thành công.',
+        ])->response();
     }
 
     public function show(Product $product): JsonResponse
@@ -161,8 +237,15 @@ class PublicProductController extends Controller
             'category',
             'subcategory',
             'origin',
-            'images',
-            'variants.packages',
+            'images' => fn($query) => $query
+                ->orderByDesc('is_primary')
+                ->orderBy('sort_order')
+                ->orderBy('id'),
+            'variants' => fn($query) => $query->orderBy('id'),
+            'variants.packages' => function ($relation) {
+                ProductStockQuery::apply($relation->getQuery())
+                    ->orderBy('product_packages.id');
+            },
         ]);
 
         return response()->json([
@@ -171,30 +254,54 @@ class PublicProductController extends Controller
         ]);
     }
 
-    private function applySearch($query, string $rawSearch, string $normalizedSearch, array $searchTerms, string $booleanSearch): void
+    private function packageSubquery(): QueryBuilder
     {
-        $scoreSql = [];
-        $scoreBindings = [];
+        return DB::query()
+            ->fromSub(ProductStockQuery::packages()->toBase(), 'stock')
+            ->join(
+                'product_variants',
+                'product_variants.id',
+                '=',
+                'stock.variant_id'
+            )
+            ->whereColumn('product_variants.product_id', 'products.id');
+    }
 
-        $scoreSql[] = 'CASE WHEN products.search_text LIKE ? THEN 100 ELSE 0 END';
-        $scoreBindings[] = "%{$normalizedSearch}%";
+    private function applySearch(
+        Builder $query,
+        string $rawSearch,
+        string $normalizedSearch,
+        array $searchTerms,
+        string $booleanSearch
+    ): void {
+        $scoreSql = [
+            'CASE WHEN products.search_text LIKE ? THEN 100 ELSE 0 END',
+        ];
+        $bindings = ["%{$normalizedSearch}%"];
 
         if ($booleanSearch !== '') {
-            $scoreSql[] = 'MATCH(products.search_text) AGAINST (? IN BOOLEAN MODE) * 20';
-            $scoreBindings[] = $booleanSearch;
+            $scoreSql[] =
+                'MATCH(products.search_text) AGAINST (? IN BOOLEAN MODE) * 20';
+            $bindings[] = $booleanSearch;
         }
 
         foreach ($searchTerms as $term) {
-            $scoreSql[] = 'CASE WHEN products.search_text LIKE ? THEN 10 ELSE 0 END';
-            $scoreBindings[] = "%{$term}%";
+            $scoreSql[] =
+                'CASE WHEN products.search_text LIKE ? THEN 10 ELSE 0 END';
+            $bindings[] = "%{$term}%";
         }
 
         $query->selectRaw(
-            '(' . implode(' + ', $scoreSql) . ') as search_score',
-            $scoreBindings
+            '(' . implode(' + ', $scoreSql) . ') AS search_score',
+            $bindings
         );
 
-        $query->where(function ($searchQuery) use ($rawSearch, $normalizedSearch, $searchTerms, $booleanSearch) {
+        $query->where(function ($searchQuery) use (
+            $rawSearch,
+            $normalizedSearch,
+            $searchTerms,
+            $booleanSearch
+        ) {
             if ($booleanSearch !== '') {
                 $searchQuery->whereRaw(
                     'MATCH(products.search_text) AGAINST (? IN BOOLEAN MODE)',
@@ -207,31 +314,12 @@ class PublicProductController extends Controller
                 ->orWhere('products.product_name', 'like', "%{$rawSearch}%");
 
             foreach ($searchTerms as $term) {
-                $searchQuery->orWhere('products.search_text', 'like', "%{$term}%");
+                $searchQuery->orWhere(
+                    'products.search_text',
+                    'like',
+                    "%{$term}%"
+                );
             }
         });
-    }
-
-    private function parseIds(mixed $value): array
-    {
-        if (is_string($value)) {
-            $value = explode(',', $value);
-        }
-
-        return collect((array) $value)
-            ->map(fn($id) => (int) $id)
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
-    }
-
-    private function applyDefaultSort($query, bool $hasSearchScore): void
-    {
-        if ($hasSearchScore) {
-            $query->orderByDesc('search_score');
-        }
-
-        $query->latest('products.created_at');
     }
 }

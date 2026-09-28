@@ -12,9 +12,19 @@ interface CartRepositoryInterface
 
     public function getCartWithItems(int $userId): ShoppingCart;
 
-    public function findItemForUser(int $userId, int $itemId): ?CartItem;
+    public function lockCart(int $userId): ShoppingCart;
 
-    public function findItemByPackage(int $cartId, int $packageId): ?CartItem;
+    public function findItemForUser(
+        int $userId,
+        int $itemId,
+        bool $lock = false
+    ): ?CartItem;
+
+    public function findItemByPackage(
+        int $cartId,
+        int $packageId,
+        bool $lock = false
+    ): ?CartItem;
 
     public function createItem(array $data): CartItem;
 
@@ -22,9 +32,16 @@ interface CartRepositoryInterface
 
     public function deleteItem(CartItem $item): bool;
 
-    public function deleteItemsByIds(ShoppingCart $cart, array $itemIds): int;
+    public function deleteItemsByIds(
+        ShoppingCart $cart,
+        array $itemIds
+    ): int;
 
     public function clearCart(ShoppingCart $cart): void;
 
-    public function selectedItemsForUser(int $userId, array $itemIds): Collection;
+    public function selectedItemsForUser(
+        int $userId,
+        array $itemIds,
+        bool $lock = false
+    ): Collection;
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Support\OrderMoney;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
@@ -15,66 +16,70 @@ class OrderItemResource extends JsonResource
         $product = $variant?->product;
 
         $images = $product?->images ?? collect();
+        $image = $images->firstWhere('is_primary', true)
+            ?? $images->sortBy('sort_order')->first();
 
-        $primaryImage = $images
-            ->sortBy(fn($image) => [
-                $image->is_primary ? 0 : 1,
-                (int) $image->sort_order,
-            ])
-            ->first();
+        $productName = $this->product_name ?? $product?->product_name;
+        $variantName = $this->variant_name ?? $variant?->variant_name;
+        $sku = $this->sku ?? $package?->sku;
+        $size = $this->size ?? $package?->size;
+        $unit = $this->unit ?? $package?->unit;
 
-        $productData = $product ? [
-            'id' => $product->id,
-            'name' => $product->product_name,
-            'product_name' => $product->product_name,
-            'primary_image' => $this->imageUrl($primaryImage?->image_url),
+        $productData = [
+            'id' => $product?->id,
+            'name' => $productName,
+            'product_name' => $productName,
+            'primary_image' => $this->imageUrl($image?->image_url),
+        ];
 
-            'images' => $images->map(fn($image) => [
-                'id' => $image->id,
-                'image_url' => $this->imageUrl($image->image_url),
-                'is_primary' => (bool) $image->is_primary,
-                'sort_order' => (int) $image->sort_order,
-            ])->values(),
-        ] : null;
-
-        $variantData = $variant ? [
-            'id' => $variant->id,
-            'name' => $variant->variant_name,
-            'variant_name' => $variant->variant_name,
+        $variantData = [
+            'id' => $variant?->id,
+            'name' => $variantName,
+            'variant_name' => $variantName,
             'product' => $productData,
-        ] : null;
+        ];
 
         return [
             'id' => $this->id,
             'order_id' => $this->order_id,
             'package_id' => $this->package_id,
-
             'quantity' => (int) $this->quantity,
-
             'price' => (float) $this->price,
-            'price_at_purchase' => (float) $this->price,
+            'subtotal' => (float) OrderMoney::decimal(
+                OrderMoney::multiply(
+                    OrderMoney::cents($this->price),
+                    (int) $this->quantity
+                )
+            ),
 
-            'subtotal' => (float) $this->price * (int) $this->quantity,
+            'product_name' => $productName,
+            'variant_name' => $variantName,
+            'sku' => $sku,
+            'size' => $size === null ? null : (float) $size,
+            'unit' => $unit,
 
-            'package' => $package ? [
-                'id' => $package->id,
-                'sku' => $package->sku,
-                'size' => (float) $package->size,
-                'unit' => $package->unit,
+            'discount_amount' => $this->discount_amount === null
+                ? null : (float) $this->discount_amount,
 
+            'net_sales_amount' => $this->net_sales_amount === null
+                ? null : (float) $this->net_sales_amount,
+
+            // Không công khai giá vốn cho khách hàng thông thường.
+            'cost_total' => $this->when(
+                $request->user()?->can('order.view') ?? false,
+                fn() => $this->cost_total
+            ),
+
+            'package' => [
+                'id' => $this->package_id,
+                'sku' => $sku,
+                'size' => $size === null ? null : (float) $size,
+                'unit' => $unit,
                 'price' => (float) $this->price,
-                'current_price' => (float) $package->price,
-
-                'quantity_available' => (int) $package->quantity_available,
-
                 'variant' => $variantData,
-            ] : null,
-
+            ],
             'variant' => $variantData,
             'product' => $productData,
-
-            'created_at' => $this->created_at?->toDateTimeString(),
-            'updated_at' => $this->updated_at?->toDateTimeString(),
         ];
     }
 
@@ -84,10 +89,8 @@ class OrderItemResource extends JsonResource
             return null;
         }
 
-        if (Str::startsWith($path, ['http://', 'https://'])) {
-            return $path;
-        }
-
-        return asset('storage/' . ltrim($path, '/'));
+        return Str::startsWith($path, ['http://', 'https://'])
+            ? $path
+            : asset('storage/' . ltrim($path, '/'));
     }
 }

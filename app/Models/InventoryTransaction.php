@@ -2,31 +2,45 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Validation\ValidationException;
 
 class InventoryTransaction extends Model
 {
-    use HasFactory;
-
-    protected $table = 'inventory_transactions';
-
     protected $fillable = [
         'package_id',
+        'order_id',
+        'document_item_id',
         'quantity_change',
         'transaction_type',
-        'note',
+        'quantity_before',
+        'quantity_after',
+        'occurred_at',
         'performed_by',
+        'note',
     ];
 
     protected $casts = [
         'quantity_change' => 'integer',
+        'quantity_before' => 'integer',
+        'quantity_after' => 'integer',
+        'occurred_at' => 'datetime',
     ];
 
-    const TYPE_IMPORT = 'import';
-    const TYPE_EXPORT = 'export';
-    const TYPE_ADJUSTMENT = 'adjustment';
+    protected static function booted(): void
+    {
+        $reject = static function () {
+            throw ValidationException::withMessages([
+                'transaction' => [
+                    'Nhật ký kho đã ghi không được sửa hoặc xóa. Hãy lập phiếu điều chỉnh.',
+                ],
+            ]);
+        };
+
+        static::updating($reject);
+        static::deleting($reject);
+    }
 
     public function package(): BelongsTo
     {
@@ -36,5 +50,18 @@ class InventoryTransaction extends Model
     public function performer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'performed_by');
+    }
+
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'order_id');
+    }
+
+    public function documentItem(): BelongsTo
+    {
+        return $this->belongsTo(
+            InventoryDocumentItem::class,
+            'document_item_id'
+        );
     }
 }

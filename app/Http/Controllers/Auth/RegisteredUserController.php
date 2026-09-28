@@ -9,6 +9,7 @@ use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
@@ -29,51 +30,113 @@ class RegisteredUserController extends Controller
                 'lowercase',
                 'email',
                 'max:255',
-                'unique:' . User::class,
+                'unique:users,email',
             ],
             'password' => [
                 'required',
+                'string',
                 'confirmed',
                 Rules\Password::defaults(),
             ],
+            'device_name' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
         ]);
 
-        $verifiedEmail = EmailVerificationCode::where('email', $request->email)
-            ->where('verified', true)
-            ->where('expires_at', '>', now())
-            ->first();
+        abort_unless(
+            $request->hasSession(),
+            500,
+            'API chưa được cấu hình session cho Sanctum SPA.'
+        );
 
-        if (!$verifiedEmail) {
+        $email = $request->string('email')->toString();
+        $proof = $request->session()->get('registration_otp');
+
+        if (
+            ! is_array($proof)
+            || ($proof['email'] ?? null) !== $email
+            || empty($proof['id'])
+        ) {
             throw ValidationException::withMessages([
                 'email' => [
-                    'Email chưa được xác thực. Vui lòng xác thực email trước khi đăng ký.',
+                    'Vui lòng xác thực email trên trình duyệt này trước khi đăng ký.',
                 ],
             ]);
         }
 
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'role' => 'customer',
-            'email_verified_at' => now(),
-            'password' => Hash::make($request->string('password')),
-        ]);
+        $user = DB::transaction(function () use ($request, $email, $proof) {
+            $otp = EmailVerificationCode::query()
+                ->whereKey($proof['id'])
+                ->where('email', $email)
+                ->where('purpose', 'registration')
+                ->lockForUpdate()
+                ->first();
 
-        $user->assignRole('customer');
+            if (
+                ! $otp
+                || ! $otp->verified
+                || $otp->consumed_at !== null
+                || $otp->expires_at->lte(now())
+                || $otp->attempts >= 5
+            ) {
+                throw ValidationException::withMessages([
+                    'email' => [
+                        'Xác thực email đã hết hạn hoặc không còn hiệu lực. Vui lòng gửi mã mới.',
+                    ],
+                ]);
+            }
+
+            // Kiểm tra lại trong transaction.
+            if (User::where('email', $email)->exists()) {
+                throw ValidationException::withMessages([
+                    'email' => ['Email này đã được đăng ký.'],
+                ]);
+            }
+
+            $user = User::create([
+                'name' => $request->string('name')->trim()->toString(),
+                'email' => $email,
+                'email_verified_at' => now(),
+                'password' => Hash::make(
+                    $request->string('password')->toString()
+                ),
+                'role' => User::ROLE_CUSTOMER,
+                'is_active' => true,
+            ]);
+
+            // Giữ nguyên cơ chế phân quyền hiện tại.
+            $user->assignRole(User::ROLE_CUSTOMER);
+
+            $otp->update([
+                'consumed_at' => now(),
+            ]);
+
+            return $user;
+        });
+
+        $request->session()->forget('registration_otp');
 
         event(new Registered($user));
 
-        Auth::login($user);
+        Auth::guard('web')->login($user);
 
-        $verifiedEmail->delete();
+        $request->session()->regenerate();
 
         $data = [
-            'user' => $user,
+            'user' => array_merge($user->toArray(), [
+                'roles' => $user->getRoleNames(),
+                'permissions' => $user->getAllPermissions()->pluck('name'),
+            ]),
             'message' => 'Đăng ký thành công',
         ];
 
-        if ($request->has('device_name')) {
-            $data['token'] = $user->createToken($request->device_name)->plainTextToken;
+        if ($request->filled('device_name')) {
+            $data['token'] = $user
+                ->createToken($request->string('device_name')->toString())
+                ->plainTextToken;
         }
 
         return response()->json($data, 201);

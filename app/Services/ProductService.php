@@ -2,28 +2,41 @@
 
 namespace App\Services;
 
-use App\Contracts\Services\ProductServiceInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Services\ImageUploadServiceInterface;
-use Illuminate\Support\Facades\DB;
+use App\Contracts\Services\ProductServiceInterface;
+use App\Models\Product;
+use Illuminate\Database\QueryException;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Exception;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
+use Throwable;
 
 class ProductService implements ProductServiceInterface
 {
-    protected $productRepository;
-    protected $imageUploadService;
+    private const PRODUCT_FIELDS = [
+        'category_id',
+        'subcategory_id',
+        'origin_id',
+        'product_name',
+        'brand',
+        'description',
+        'usage_instructions',
+        'safety_warning',
+        'is_show',
+    ];
 
     public function __construct(
-        ProductRepositoryInterface $productRepository,
-        ImageUploadServiceInterface $imageUploadService
-    ) {
-        $this->productRepository = $productRepository;
-        $this->imageUploadService = $imageUploadService;
-    }
+        protected ProductRepositoryInterface $productRepository,
+        protected ImageUploadServiceInterface $imageUploadService
+    ) {}
 
-    public function listProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator
-    {
+    public function listProducts(
+        array $filters = [],
+        int $perPage = 15
+    ): LengthAwarePaginator {
         return $this->productRepository->getAll($filters, $perPage);
     }
 
@@ -32,117 +45,209 @@ class ProductService implements ProductServiceInterface
         return $this->productRepository->getProductWithRelations($id);
     }
 
-    public function createProduct(array $data, array $imageFiles = []): object
-    {
-        DB::beginTransaction();
+    public function createProduct(
+        array $data,
+        array $imageFiles = []
+    ): object {
+        $uploadedPaths = [];
+
         try {
-            $productData = [
-                'category_id' => $data['category_id'],
-                'subcategory_id' => $data['subcategory_id'],
-                'origin_id' => $data['origin_id'],
-                'product_name' => $data['product_name'],
-                'description' => $data['description'] ?? null,
-                'usage_instructions' => $data['usage_instructions'] ?? null,
-                'safety_warning' => $data['safety_warning'] ?? null,
-                'is_show' => $data['is_show'] ?? true,
-            ];
-            $product = $this->productRepository->create($productData);
+            return DB::transaction(function () use (
+                $data,
+                $imageFiles,
+                &$uploadedPaths
+            ) {
+                $this->assertCategoryPair(
+                    (int) $data['category_id'],
+                    (int) $data['subcategory_id']
+                );
 
-            // Upload images
-            $imagePaths = [];
-            if (!empty($imageFiles)) {
+                $productData = Arr::only($data, self::PRODUCT_FIELDS);
+                $productData['is_show'] = $data['is_show'] ?? true;
+
+                $product = $this->productRepository->create($productData);
+
+                $this->productRepository->syncVariantsAndPackages(
+                    $product->id,
+                    $data['variants']
+                );
+
                 foreach ($imageFiles as $file) {
-                    $path = $this->imageUploadService->upload($file, 'products');
-                    $imagePaths[] = $path;
+                    $uploadedPaths[] = $this->imageUploadService
+                        ->upload($file, 'products');
                 }
-            }
-            $primaryIndex = $data['primary_image_index'] ?? 0;
-            $this->productRepository->attachImages($product->id, $imagePaths, $primaryIndex);
 
-            // Sync variants & packages
-            if (!empty($data['variants'])) {
-                $this->productRepository->syncVariantsAndPackages($product->id, $data['variants']);
-            }
+                $this->productRepository->attachImages(
+                    $product->id,
+                    $uploadedPaths,
+                    $uploadedPaths
+                        ? (int) ($data['primary_image_index'] ?? 0)
+                        : null
+                );
 
-            DB::commit();
-            return $product->fresh(['images', 'variants.packages']);
-        } catch (Exception $e) {
-            DB::rollBack();
-            throw new Exception("Create product failed: " . $e->getMessage());
+                return $this->productRepository
+                    ->getProductWithRelations($product->id);
+            });
+        } catch (Throwable $exception) {
+            $this->deleteFilesSafely($uploadedPaths);
+            $this->rethrow($exception);
         }
     }
 
-    public function updateProduct(int $id, array $data, array $imageFiles = []): bool
-    {
-        DB::beginTransaction();
+    public function updateProduct(
+        int $id,
+        array $data,
+        array $imageFiles = []
+    ): bool {
+        $uploadedPaths = [];
+        $oldPaths = [];
+
         try {
-            $product = $this->productRepository->findById($id);
-            if (!$product) {
-                throw new Exception("Product not found");
-            }
+            DB::transaction(function () use (
+                $id,
+                $data,
+                $imageFiles,
+                &$uploadedPaths,
+                &$oldPaths
+            ) {
+                $product = Product::query()
+                    ->lockForUpdate()
+                    ->findOrFail($id);
 
-            // Update basic info
-            $updateData = array_intersect_key($data, array_flip([
-                'category_id',
-                'subcategory_id',
-                'origin_id',
-                'product_name',
-                'description',
-                'usage_instructions',
-                'safety_warning',
-                'is_show'
-            ]));
-            if (!empty($updateData)) {
-                $this->productRepository->update($id, $updateData);
-            }
+                $this->assertCategoryPair(
+                    (int) ($data['category_id'] ?? $product->category_id),
+                    (int) ($data['subcategory_id'] ?? $product->subcategory_id)
+                );
 
-            // Replace images if requested
-            if (isset($data['replace_images']) && $data['replace_images'] === true && !empty($imageFiles)) {
-                $imagePaths = [];
-                foreach ($imageFiles as $file) {
-                    $path = $this->imageUploadService->upload($file, 'products');
-                    $imagePaths[] = $path;
+                $updateData = Arr::only($data, self::PRODUCT_FIELDS);
+
+                if ($updateData) {
+                    $this->productRepository->update($id, $updateData);
                 }
-                $primaryIndex = $data['primary_image_index'] ?? 0;
-                $this->productRepository->attachImages($id, $imagePaths, $primaryIndex);
-            }
 
-            // Sync variants & packages if provided
-            if (isset($data['variants'])) {
-                $this->productRepository->syncVariantsAndPackages($id, $data['variants']);
-            }
+                if (array_key_exists('variants', $data)) {
+                    $this->productRepository->syncVariantsAndPackages(
+                        $id,
+                        $data['variants']
+                    );
+                }
 
-            DB::commit();
-            return true;
-        } catch (Exception $e) {
-            DB::rollBack();
-            throw new Exception("Update product failed: " . $e->getMessage());
+                if (($data['replace_images'] ?? false) === true) {
+                    if (!$imageFiles) {
+                        throw ValidationException::withMessages([
+                            'images' => ['Vui lòng gửi ảnh thay thế.'],
+                        ]);
+                    }
+
+                    $oldPaths = $product->images()->pluck('image_url')->all();
+
+                    foreach ($imageFiles as $file) {
+                        $uploadedPaths[] = $this->imageUploadService
+                            ->upload($file, 'products');
+                    }
+
+                    $this->productRepository->attachImages(
+                        $id,
+                        $uploadedPaths,
+                        (int) ($data['primary_image_index'] ?? 0)
+                    );
+                }
+            });
+        } catch (Throwable $exception) {
+            $this->deleteFilesSafely($uploadedPaths);
+            $this->rethrow($exception);
         }
+
+        $this->deleteFilesSafely($oldPaths);
+
+        return true;
     }
 
     public function deleteProduct(int $id): bool
     {
-        DB::beginTransaction();
+        $oldPaths = [];
 
         try {
-            $product = $this->productRepository->getProductWithRelations($id);
+            $deleted = DB::transaction(function () use ($id, &$oldPaths) {
+                $product = Product::query()
+                    ->lockForUpdate()
+                    ->findOrFail($id);
 
-            if (!$product) {
-                throw new Exception("Product not found");
-            }
+                $oldPaths = $product->images()->pluck('image_url')->all();
 
-            foreach ($product->images as $img) {
-                $this->imageUploadService->delete($img->image_url);
-            }
-
-            $result = $this->productRepository->delete($id);
-
-            DB::commit();
-
-            return $result;
-        } catch (Exception $e) {
-            DB::rollBack();
-            throw new Exception("Delete product failed: " . $e->getMessage());
+                return $this->productRepository->delete($id);
+            });
+        } catch (Throwable $exception) {
+            $this->rethrow($exception);
         }
+
+        if ($deleted) {
+            $this->deleteFilesSafely($oldPaths);
+        }
+
+        return $deleted;
+    }
+
+    private function assertCategoryPair(
+        int $categoryId,
+        int $subcategoryId
+    ): void {
+        $subcategory = DB::table('subcategories')
+            ->where('id', $subcategoryId)
+            ->sharedLock()
+            ->first();
+
+        if (
+            !$subcategory
+            || (int) $subcategory->category_id !== $categoryId
+        ) {
+            throw ValidationException::withMessages([
+                'subcategory_id' => [
+                    'Danh mục con không thuộc danh mục đã chọn.',
+                ],
+            ]);
+        }
+    }
+
+    private function deleteFilesSafely(array $paths): void
+    {
+        foreach (array_unique($paths) as $path) {
+            try {
+                if (!$this->imageUploadService->delete($path)) {
+                    report(new RuntimeException(
+                        "Không xóa được ảnh sản phẩm: {$path}"
+                    ));
+                }
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
+    }
+
+    private function rethrow(Throwable $exception): never
+    {
+        if ($exception instanceof QueryException) {
+            $driverCode = (int) ($exception->errorInfo[1] ?? 0);
+
+            if ($driverCode === 1062) {
+                throw ValidationException::withMessages([
+                    'variants' => [
+                        'Dữ liệu bị trùng khóa duy nhất, có thể SKU vừa được sử dụng. '
+                            . 'Vui lòng kiểm tra và tải lại dữ liệu.',
+                    ],
+                ]);
+            }
+
+            if (in_array($driverCode, [1451, 1452], true)) {
+                throw ValidationException::withMessages([
+                    'product' => [
+                        'Dữ liệu liên quan đã thay đổi hoặc đang được sử dụng. '
+                            . 'Không thể thực hiện thao tác này.',
+                    ],
+                ]);
+            }
+        }
+
+        throw $exception;
     }
 }

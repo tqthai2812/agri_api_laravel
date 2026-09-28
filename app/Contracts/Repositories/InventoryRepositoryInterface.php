@@ -8,15 +8,28 @@ use Illuminate\Pagination\LengthAwarePaginator;
 
 interface InventoryRepositoryInterface
 {
-    public function getPackages(array $filters = [], int $perPage = 15): LengthAwarePaginator;
+    public function getPackages(
+        array $filters = [],
+        int $perPage = 15
+    ): LengthAwarePaginator;
 
     public function findPackage(int $packageId): ?ProductPackage;
 
     public function findPackageForUpdate(int $packageId): ?ProductPackage;
 
-    public function getTransactions(array $filters = [], int $perPage = 15): LengthAwarePaginator;
+    public function getTransactions(
+        array $filters = [],
+        int $perPage = 15
+    ): LengthAwarePaginator;
 
     public function createTransaction(array $data): InventoryTransaction;
 
-    public function updateTransaction(InventoryTransaction $transaction, array $data): bool;
+    /**
+     * Giữ chữ ký cũ để không làm vỡ dependency.
+     * Implementation từ chối sửa lịch sử đã ghi.
+     */
+    public function updateTransaction(
+        InventoryTransaction $transaction,
+        array $data
+    ): bool;
 }

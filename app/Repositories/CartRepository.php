@@ -5,7 +5,10 @@ namespace App\Repositories;
 use App\Contracts\Repositories\CartRepositoryInterface;
 use App\Models\CartItem;
 use App\Models\ShoppingCart;
+use App\Support\ProductStockQuery;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use LogicException;
 
 class CartRepository implements CartRepositoryInterface
 {
@@ -18,40 +21,69 @@ class CartRepository implements CartRepositoryInterface
 
     public function getCartWithItems(int $userId): ShoppingCart
     {
-        $cart = $this->getOrCreateCart($userId);
+        return $this->getOrCreateCart($userId)->load([
+            'items' => fn($query) => $query->orderByDesc('id'),
 
-        return $cart->load([
-            'items' => function ($query) {
-                $query->latest();
+            'items.package' => function ($relation) {
+                ProductStockQuery::apply($relation->getQuery());
             },
-            'items.package:id,variant_id,sku,size,unit,price,quantity_available',
-            'items.package.variant:id,product_id,variant_name',
-            'items.package.variant.product:id,category_id,subcategory_id,origin_id,product_name,is_show',
-            'items.package.variant.product.images:id,product_id,image_url,is_primary,sort_order',
+
+            'items.package.variant.product.images',
         ]);
     }
 
-    public function findItemForUser(int $userId, int $itemId): ?CartItem
+    public function lockCart(int $userId): ShoppingCart
     {
-        return CartItem::query()
-            ->where('id', $itemId)
-            ->whereHas('cart', function ($query) use ($userId) {
-                $query->where('user_id', $userId);
-            })
-            ->with([
-                'package:id,variant_id,sku,size,unit,price,quantity_available',
-                'package.variant:id,product_id,variant_name',
-                'package.variant.product:id,product_name,is_show',
-            ])
-            ->first();
+        $this->requireTransaction();
+
+        $cart = $this->getOrCreateCart($userId);
+
+        return ShoppingCart::query()
+            ->whereKey($cart->id)
+            ->where('user_id', $userId)
+            ->lockForUpdate()
+            ->firstOrFail();
     }
 
-    public function findItemByPackage(int $cartId, int $packageId): ?CartItem
-    {
-        return CartItem::query()
+    public function findItemForUser(
+        int $userId,
+        int $itemId,
+        bool $lock = false
+    ): ?CartItem {
+        $query = CartItem::query()
+            ->whereKey($itemId)
+            ->whereHas(
+                'cart',
+                fn($query) => $query->where('user_id', $userId)
+            );
+
+        if ($lock) {
+            $this->requireTransaction();
+
+            // Service sẽ tải package cùng dữ liệu kho sau khi khóa dòng giỏ.
+            $query->lockForUpdate();
+        } else {
+            $query->with($this->itemRelations());
+        }
+
+        return $query->first();
+    }
+
+    public function findItemByPackage(
+        int $cartId,
+        int $packageId,
+        bool $lock = false
+    ): ?CartItem {
+        $query = CartItem::query()
             ->where('cart_id', $cartId)
-            ->where('package_id', $packageId)
-            ->first();
+            ->where('package_id', $packageId);
+
+        if ($lock) {
+            $this->requireTransaction();
+            $query->lockForUpdate();
+        }
+
+        return $query->first();
     }
 
     public function createItem(array $data): CartItem
@@ -66,11 +98,13 @@ class CartRepository implements CartRepositoryInterface
 
     public function deleteItem(CartItem $item): bool
     {
-        return $item->delete();
+        return (bool) $item->delete();
     }
 
-    public function deleteItemsByIds(ShoppingCart $cart, array $itemIds): int
-    {
+    public function deleteItemsByIds(
+        ShoppingCart $cart,
+        array $itemIds
+    ): int {
         return $cart->items()
             ->whereIn('id', $itemIds)
             ->delete();
@@ -81,19 +115,46 @@ class CartRepository implements CartRepositoryInterface
         $cart->items()->delete();
     }
 
-    public function selectedItemsForUser(int $userId, array $itemIds): Collection
-    {
-        return CartItem::query()
+    public function selectedItemsForUser(
+        int $userId,
+        array $itemIds,
+        bool $lock = false
+    ): Collection {
+        $query = CartItem::query()
             ->whereIn('id', $itemIds)
-            ->whereHas('cart', function ($query) use ($userId) {
-                $query->where('user_id', $userId);
-            })
-            ->with([
-                'package:id,variant_id,sku,size,unit,price,quantity_available',
-                'package.variant:id,product_id,variant_name',
-                'package.variant.product:id,product_name,is_show',
-                'package.variant.product.images:id,product_id,image_url,is_primary,sort_order',
-            ])
-            ->get();
+            ->whereHas(
+                'cart',
+                fn($query) => $query->where('user_id', $userId)
+            )
+            ->orderBy('id');
+
+        if ($lock) {
+            $this->requireTransaction();
+            $query->lockForUpdate();
+        } else {
+            $query->with($this->itemRelations());
+        }
+
+        return $query->get();
+    }
+
+    private function itemRelations(): array
+    {
+        return [
+            'package' => function ($relation) {
+                ProductStockQuery::apply($relation->getQuery());
+            },
+
+            'package.variant.product.images',
+        ];
+    }
+
+    private function requireTransaction(): void
+    {
+        if (DB::transactionLevel() < 1) {
+            throw new LogicException(
+                'Thao tác khóa giỏ hàng phải chạy trong transaction.'
+            );
+        }
     }
 }

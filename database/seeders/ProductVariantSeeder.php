@@ -11,31 +11,35 @@ class ProductVariantSeeder extends Seeder
     public function run(): void
     {
         $data = [
-            'Phân bón hữu cơ cao cấp' => [
-                'Gói nhỏ',
-                'Bao lớn',
+            'Phân hữu cơ vi sinh cải tạo đất' => [
+                'Túi nhỏ',
+                'Bao nông trại',
             ],
-            'Phân NPK tổng hợp 16-16-8' => [
-                'Túi tiêu chuẩn',
-                'Bao lớn',
+            'Phân NPK 16-16-8' => [
+                'Gói dùng thử',
+                'Bao tiêu chuẩn',
             ],
-            'Thuốc trừ sâu sinh học' => [
-                'Chai nhỏ',
-                'Can lớn',
+            'Chế phẩm sinh học hỗ trợ trừ sâu' => [
+                'Chai phun vườn nhà',
             ],
-            'Hạt giống rau cải xanh' => [
+            'Hạt giống cải xanh chịu nhiệt' => [
                 'Gói hạt giống',
+            ],
+            'Kéo cắt cành làm vườn' => [
+                'Kéo cầm tay',
             ],
         ];
 
-        foreach ($data as $productName => $variants) {
+        foreach ($data as $productName => $variantNames) {
             $product = Product::where('product_name', $productName)->first();
 
             if (!$product) {
-                continue;
+                throw new \RuntimeException(
+                    "Không tìm thấy sản phẩm '{$productName}'. Hãy chạy ProductSeeder trước."
+                );
             }
 
-            foreach ($variants as $variantName) {
+            foreach ($variantNames as $variantName) {
                 ProductVariant::firstOrCreate([
                     'product_id' => $product->id,
                     'variant_name' => $variantName,

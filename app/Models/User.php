@@ -15,7 +15,16 @@ use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 use App\Notifications\CustomResetPasswordNotification;
 
-#[Fillable(['name', 'email', 'password', 'avatar', 'role', 'phone_number', 'is_active'])]
+#[Fillable([
+    'name',
+    'email',
+    'email_verified_at',
+    'password',
+    'avatar',
+    'role',
+    'phone_number',
+    'is_active',
+])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {

@@ -4,10 +4,10 @@ namespace App\Models;
 
 use App\Support\VietnameseText;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Model;
 
 class Product extends Model
 {
@@ -21,6 +21,7 @@ class Product extends Model
         'subcategory_id',
         'origin_id',
         'product_name',
+        'brand',
         'description',
         'usage_instructions',
         'safety_warning',
@@ -46,15 +47,21 @@ class Product extends Model
     public function makeSearchText(): string
     {
         $categoryName = $this->category_id
-            ? Category::query()->whereKey($this->category_id)->value('category_name')
+            ? Category::query()
+            ->whereKey($this->category_id)
+            ->value('category_name')
             : '';
 
         $subcategoryName = $this->subcategory_id
-            ? Subcategory::query()->whereKey($this->subcategory_id)->value('subcategory_name')
+            ? Subcategory::query()
+            ->whereKey($this->subcategory_id)
+            ->value('subcategory_name')
             : '';
 
         $originName = $this->origin_id
-            ? Origin::query()->whereKey($this->origin_id)->value('origin_name')
+            ? Origin::query()
+            ->whereKey($this->origin_id)
+            ->value('origin_name')
             : '';
 
         return VietnameseText::normalize([
@@ -70,8 +77,6 @@ class Product extends Model
 
     public function refreshSearchText(): bool
     {
-        $this->search_text = $this->makeSearchText();
-
         return $this->save();
     }
 
@@ -107,11 +112,34 @@ class Product extends Model
 
     public function tags(): BelongsToMany
     {
-        return $this->belongsToMany(Tag::class, 'product_tag');
+        return $this->belongsToMany(
+            Tag::class,
+            'product_tags',
+            'product_id',
+            'tag_id'
+        );
     }
 
     public function reviews(): HasMany
     {
         return $this->hasMany(ProductReview::class);
+    }
+
+    public function suppliers(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Supplier::class,
+            'product_suppliers',
+            'product_id',
+            'supplier_id'
+        )->withTimestamps();
+    }
+
+    public function productSuppliers(): HasMany
+    {
+        return $this->hasMany(
+            ProductSupplier::class,
+            'product_id'
+        );
     }
 }

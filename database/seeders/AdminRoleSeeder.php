@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
@@ -34,10 +33,10 @@ class AdminRoleSeeder extends Seeder
         ]);
 
         $adminRole->syncPermissions(
-            Permission::where('guard_name', $guardName)->pluck('name')->toArray()
+            Permission::where('guard_name', $guardName)->pluck('name')->all()
         );
 
-        $staffRole->syncPermissions([
+        $staffPermissions = [
             'dashboard.view',
 
             'product.view',
@@ -73,74 +72,77 @@ class AdminRoleSeeder extends Seeder
             'discount.create',
             'discount.update',
 
-            'order.view',
-            'order.update',
+            'supplier.view',
+            'supplier.create',
+            'supplier.update',
 
             'article.view',
             'article.create',
             'article.update',
             'article.delete',
-        ]);
 
+            'review.view',
+            'contact.view',
+        ];
+
+        $staffRole->syncPermissions($staffPermissions);
         $customerRole->syncPermissions([]);
 
-        $admin = User::where('email', 'thai@gmail.com')->first();
-
-        if (!$admin) {
-            $admin = User::create([
-                'name' => 'Admin EVDesign',
+        $accounts = [
+            [
                 'email' => 'thai@gmail.com',
-                'password' => Hash::make('12345678'),
+                'name' => 'Quản trị viên Agri',
                 'phone_number' => '0900000000',
                 'role' => 'admin',
-                'is_active' => true,
-                'email_verified_at' => now(),
-            ]);
-        } else {
-            $admin->update([
-                'role' => 'admin',
-                'is_active' => true,
-                'email_verified_at' => $admin->email_verified_at ?? now(),
-            ]);
-        }
-
-        $admin->syncRoles(['admin']);
-
-        $staff = User::firstOrCreate(
-            ['email' => 'staff@gmail.com'],
+            ],
             [
-                'name' => 'Nhân viên EVDesign',
-                'password' => Hash::make('12345678'),
+                'email' => 'staff@gmail.com',
+                'name' => 'Nhân viên cửa hàng',
                 'phone_number' => '0911111111',
                 'role' => 'staff',
-                'is_active' => true,
-                'email_verified_at' => now(),
-            ]
-        );
-
-        if (Schema::hasColumn('users', 'role')) {
-            $staff->update(['role' => 'staff']);
-        }
-
-        $staff->syncRoles(['staff']);
-
-        $customer = User::firstOrCreate(
-            ['email' => 'customer@gmail.com'],
+            ],
             [
-                'name' => 'Khách hàng mẫu',
-                'password' => Hash::make('12345678'),
+                'email' => 'customer@gmail.com',
+                'name' => 'Nguyễn Minh Anh',
                 'phone_number' => '0922222222',
                 'role' => 'customer',
+            ],
+            [
+                'email' => 'nguyen.van.nam@gmail.com',
+                'name' => 'Nguyễn Văn Nam',
+                'phone_number' => '0933333333',
+                'role' => 'customer',
+            ],
+            [
+                'email' => 'tran.thi.lan@gmail.com',
+                'name' => 'Trần Thị Lan',
+                'phone_number' => '0944444444',
+                'role' => 'customer',
+            ],
+        ];
+
+        foreach ($accounts as $account) {
+            $user = User::firstOrCreate(
+                ['email' => $account['email']],
+                [
+                    'name' => $account['name'],
+                    'password' => Hash::make('12345678'),
+                    'phone_number' => $account['phone_number'],
+                    'is_active' => true,
+                    'email_verified_at' => now(),
+                ]
+            );
+
+            // Cập nhật các thông tin mẫu nhưng không ghi cột role vào users.
+            $user->forceFill([
+                'name' => $account['name'],
+                'phone_number' => $account['phone_number'],
                 'is_active' => true,
-                'email_verified_at' => now(),
-            ]
-        );
+                'email_verified_at' => $user->email_verified_at ?? now(),
+            ])->save();
 
-        if (Schema::hasColumn('users', 'role')) {
-            $customer->update(['role' => 'customer']);
+            $user->syncRoles([$account['role']]);
         }
-
-        $customer->syncRoles(['customer']);
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
     }

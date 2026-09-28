@@ -7,7 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Client\Checkout\CheckoutPreviewRequest;
 use App\Http\Requests\Client\Checkout\CheckoutRequest;
 use Illuminate\Http\JsonResponse;
-use RuntimeException;
+use Illuminate\Http\Request;
 
 class CheckoutController extends Controller
 {
@@ -15,47 +15,33 @@ class CheckoutController extends Controller
         protected CheckoutServiceInterface $checkoutService
     ) {}
 
-    public function options(): JsonResponse
+    public function options(Request $request): JsonResponse
     {
         return response()->json([
             'message' => 'Lấy tùy chọn thanh toán thành công.',
-            'data' => $this->checkoutService->options(auth()->user()),
+            'data' => $this->checkoutService->options($request->user()),
         ]);
     }
 
     public function preview(CheckoutPreviewRequest $request): JsonResponse
     {
-        try {
-            return response()->json([
-                'message' => 'Tính toán đơn hàng thành công.',
-                'data' => $this->checkoutService->preview(
-                    auth()->user(),
-                    $request->validated()
-                ),
-            ]);
-        } catch (RuntimeException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 422);
-        }
+        return response()->json([
+            'message' => 'Tính toán đơn hàng thành công.',
+            'data' => $this->checkoutService->preview(
+                $request->user(),
+                $request->validated()
+            ),
+        ]);
     }
 
     public function checkout(CheckoutRequest $request): JsonResponse
     {
-        try {
-            $data = $this->checkoutService->checkout(
-                auth()->user(),
+        return response()->json([
+            'message' => 'Đặt hàng thành công.',
+            'data' => $this->checkoutService->checkout(
+                $request->user(),
                 $request->validated()
-            );
-
-            return response()->json([
-                'message' => 'Đặt hàng thành công.',
-                'data' => $data,
-            ], 201);
-        } catch (RuntimeException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 422);
-        }
+            ),
+        ], 201);
     }
 }

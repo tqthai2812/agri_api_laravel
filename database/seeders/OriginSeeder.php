@@ -11,12 +11,11 @@ class OriginSeeder extends Seeder
     {
         $origins = [
             'Việt Nam',
+            'Thái Lan',
             'Nhật Bản',
             'Hàn Quốc',
-            'Thái Lan',
-            'Hoa Kỳ',
             'Đức',
-            'Trung Quốc',
+            'Hoa Kỳ',
         ];
 
         foreach ($origins as $originName) {

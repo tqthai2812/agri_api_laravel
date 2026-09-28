@@ -9,6 +9,15 @@ class ShippingAddressResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $addressParts = collect([
+            $this->address_detail,
+            $this->ward,
+            $this->district,
+            $this->province,
+        ])
+            ->map(fn($value) => trim((string) ($value ?? '')))
+            ->filter(fn($value) => $value !== '');
+
         return [
             'id' => $this->id,
             'user_id' => $this->user_id,
@@ -28,12 +37,7 @@ class ShippingAddressResource extends JsonResource
             'address_type' => $this->address_type,
             'is_default' => (bool) $this->is_default,
 
-            'full_address' => collect([
-                $this->address_detail,
-                $this->ward,
-                $this->district,
-                $this->province,
-            ])->filter()->implode(', '),
+            'full_address' => $addressParts->implode(', '),
 
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),

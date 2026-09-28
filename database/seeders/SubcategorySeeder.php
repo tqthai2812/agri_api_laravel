@@ -18,39 +18,35 @@ class SubcategorySeeder extends Seeder
                 'Phân vi sinh',
                 'Phân bón lá',
             ],
-
             'Thuốc bảo vệ thực vật' => [
                 'Thuốc trừ sâu',
                 'Thuốc trừ nấm',
                 'Thuốc trừ cỏ',
-                'Thuốc dưỡng cây',
             ],
-
             'Hạt giống' => [
                 'Hạt giống rau',
-                'Hạt giống hoa',
+                'Hạt giống lúa',
                 'Hạt giống cây ăn trái',
             ],
-
             'Dụng cụ nông nghiệp' => [
                 'Bình tưới',
                 'Kéo cắt cành',
-                'Xẻng làm vườn',
+                'Dụng cụ làm đất',
             ],
         ];
 
-        foreach ($data as $categoryName => $subcategories) {
+        foreach ($data as $categoryName => $subcategoryNames) {
             $category = Category::where('category_name', $categoryName)->first();
 
             if (!$category) {
-                continue;
+                throw new \RuntimeException(
+                    "Không tìm thấy danh mục '{$categoryName}'. Hãy chạy CategorySeeder trước."
+                );
             }
 
-            foreach ($subcategories as $subcategoryName) {
+            foreach ($subcategoryNames as $subcategoryName) {
                 Subcategory::updateOrCreate(
-                    [
-                        'subcategory_slug' => Str::slug($subcategoryName),
-                    ],
+                    ['subcategory_slug' => Str::slug($subcategoryName)],
                     [
                         'category_id' => $category->id,
                         'subcategory_name' => $subcategoryName,

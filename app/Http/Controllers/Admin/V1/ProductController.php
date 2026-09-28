@@ -30,30 +30,37 @@ class ProductController extends Controller implements HasMiddleware
 
     public function index(Request $request): JsonResponse
     {
-        $filters = $request->only([
-            'category_id',
-            'subcategory_id',
-            'origin_id',
-            'search',
-            'is_show',
+        if (is_string($request->input('is_show'))) {
+            $value = strtolower($request->input('is_show'));
+
+            if (in_array($value, ['true', 'false'], true)) {
+                $request->merge(['is_show' => $value === 'true']);
+            }
+        }
+
+        $data = $request->validate([
+            'category_id' => ['nullable', 'integer', 'min:1'],
+            'subcategory_id' => ['nullable', 'integer', 'min:1'],
+            'origin_id' => ['nullable', 'integer', 'min:1'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'is_show' => ['nullable', 'boolean'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $perPage = $request->get('per_page', 15);
+        $products = $this->productService->listProducts(
+            $data,
+            (int) ($data['per_page'] ?? 15)
+        );
 
-        $products = $this->productService->listProducts($filters, $perPage);
-
-        return ProductResource::collection($products)
-            ->response()
-            ->setStatusCode(200);
+        return ProductResource::collection($products)->response();
     }
 
     public function store(StoreProductRequest $request): JsonResponse
     {
-        $data = $request->validated();
-
-        $imageFiles = $request->file('images', []);
-
-        $product = $this->productService->createProduct($data, $imageFiles);
+        $product = $this->productService->createProduct(
+            $request->validated(),
+            $request->file('images', [])
+        );
 
         return response()->json([
             'message' => 'Tạo sản phẩm thành công.',
@@ -77,37 +84,31 @@ class ProductController extends Controller implements HasMiddleware
         ]);
     }
 
-    public function update(UpdateProductRequest $request, int $id): JsonResponse
-    {
-        $data = $request->validated();
-
-        $imageFiles = $request->file('images', []);
-
-        $updated = $this->productService->updateProduct($id, $data, $imageFiles);
-
-        if (!$updated) {
-            return response()->json([
-                'message' => 'Cập nhật sản phẩm thất bại.',
-            ], 400);
-        }
+    public function update(
+        UpdateProductRequest $request,
+        int $id
+    ): JsonResponse {
+        $updated = $this->productService->updateProduct(
+            $id,
+            $request->validated(),
+            $request->file('images', [])
+        );
 
         return response()->json([
-            'message' => 'Cập nhật sản phẩm thành công.',
-        ]);
+            'message' => $updated
+                ? 'Cập nhật sản phẩm thành công.'
+                : 'Cập nhật sản phẩm thất bại.',
+        ], $updated ? 200 : 400);
     }
 
     public function destroy(int $id): JsonResponse
     {
         $deleted = $this->productService->deleteProduct($id);
 
-        if (!$deleted) {
-            return response()->json([
-                'message' => 'Xóa sản phẩm thất bại.',
-            ], 400);
-        }
-
         return response()->json([
-            'message' => 'Xóa sản phẩm thành công.',
-        ]);
+            'message' => $deleted
+                ? 'Xóa sản phẩm thành công.'
+                : 'Không tìm thấy sản phẩm.',
+        ], $deleted ? 200 : 404);
     }
 }

@@ -3,9 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Model;
 
 class ProductPackage extends Model
 {
@@ -22,12 +22,14 @@ class ProductPackage extends Model
         'quantity_available',
         'barcode',
         'box_barcode',
+        'reorder_level',
     ];
 
     protected $casts = [
         'size' => 'decimal:2',
         'price' => 'decimal:2',
         'quantity_available' => 'integer',
+        'reorder_level' => 'integer',
     ];
 
     const UNIT_KG = 'kg';
@@ -38,21 +40,57 @@ class ProductPackage extends Model
 
     public function variant(): BelongsTo
     {
-        return $this->belongsTo(ProductVariant::class, 'variant_id');
+        return $this->belongsTo(
+            ProductVariant::class,
+            'variant_id'
+        );
     }
 
     public function cartItems(): HasMany
     {
-        return $this->hasMany(CartItem::class, 'package_id');
+        return $this->hasMany(
+            CartItem::class,
+            'package_id'
+        );
     }
 
     public function orderItems(): HasMany
     {
-        return $this->hasMany(OrderItem::class, 'package_id');
+        return $this->hasMany(
+            OrderItem::class,
+            'package_id'
+        );
     }
 
     public function inventoryTransactions(): HasMany
     {
-        return $this->hasMany(InventoryTransaction::class, 'package_id');
+        return $this->hasMany(
+            InventoryTransaction::class,
+            'package_id'
+        );
+    }
+
+    public function inventoryDocumentItems(): HasMany
+    {
+        return $this->hasMany(
+            InventoryDocumentItem::class,
+            'package_id'
+        );
+    }
+
+    public function stockReservations(): HasMany
+    {
+        return $this->hasMany(
+            StockReservation::class,
+            'package_id'
+        );
+    }
+
+    public function inventoryLots(): HasMany
+    {
+        return $this->hasMany(
+            InventoryLot::class,
+            'package_id'
+        );
     }
 }

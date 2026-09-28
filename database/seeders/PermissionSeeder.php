@@ -15,89 +15,81 @@ class PermissionSeeder extends Seeder
         $guardName = 'web';
 
         $permissions = [
-            // Dashboard
             'dashboard.view',
 
-            // Category
             'category.view',
             'category.create',
             'category.update',
             'category.delete',
 
-            // Subcategory
             'subcategory.view',
             'subcategory.create',
             'subcategory.update',
             'subcategory.delete',
 
-            // Origin
             'origin.view',
             'origin.create',
             'origin.update',
             'origin.delete',
 
-            // Product
             'product.view',
             'product.create',
             'product.update',
             'product.delete',
 
-            // Order
             'order.view',
             'order.create',
             'order.update',
             'order.delete',
 
-            // User
             'user.view',
             'user.create',
             'user.update',
             'user.delete',
             'user.assign-role',
 
-            // Role
             'role.view',
             'role.create',
             'role.update',
             'role.delete',
             'role.assign-permission',
 
-            // Permission
             'permission.view',
 
-            // Other admin pages
             'gallery.view',
             'article.view',
+            'article.create',
+            'article.update',
+            'article.delete',
             'settings.view',
 
-            // Inventory
             'inventory.view',
             'inventory.create',
             'inventory.update',
             'inventory.delete',
 
-            // Delivery Method
             'delivery-method.view',
             'delivery-method.create',
             'delivery-method.update',
             'delivery-method.delete',
 
-            // Discount
             'discount.view',
             'discount.create',
             'discount.update',
             'discount.delete',
 
-            // News
-            'article.view',
-            'article.create',
-            'article.update',
-            'article.delete',
+            'supplier.view',
+            'supplier.create',
+            'supplier.update',
+            'supplier.delete',
+
+            'review.view',
+            'contact.view',
         ];
 
-        foreach ($permissions as $permission) {
+        foreach ($permissions as $permissionName) {
             Permission::firstOrCreate([
-                'name' => $permission,
+                'name' => $permissionName,
                 'guard_name' => $guardName,
             ]);
         }
