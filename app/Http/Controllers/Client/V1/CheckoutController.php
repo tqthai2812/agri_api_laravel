@@ -14,7 +14,6 @@ class CheckoutController extends Controller
     public function __construct(
         protected CheckoutServiceInterface $checkoutService
     ) {}
-
     public function options(Request $request): JsonResponse
     {
         return response()->json([
@@ -22,7 +21,6 @@ class CheckoutController extends Controller
             'data' => $this->checkoutService->options($request->user()),
         ]);
     }
-
     public function preview(CheckoutPreviewRequest $request): JsonResponse
     {
         return response()->json([
@@ -33,14 +31,13 @@ class CheckoutController extends Controller
             ),
         ]);
     }
-
     public function checkout(CheckoutRequest $request): JsonResponse
     {
         return response()->json([
             'message' => 'Đặt hàng thành công.',
             'data' => $this->checkoutService->checkout(
                 $request->user(),
-                $request->validated()
+                [...$request->validated(), '_client_ip' => $request->ip()]
             ),
         ], 201);
     }
