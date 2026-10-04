@@ -2,48 +2,29 @@
 
 namespace App\Http\Controllers\Admin\V1;
 
+use App\Contracts\Services\ContactServiceInterface;
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Http\Requests\ContactIndexRequest;
+use App\Http\Requests\Admin\Contact\UpdateContactRequest;
+use App\Http\Resources\AdminContactResource;
+use Illuminate\Http\JsonResponse;
 
 class ContactController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function __construct(protected ContactServiceInterface $contacts) {}
+    public function index(ContactIndexRequest $request): JsonResponse
     {
-        //
+        $data = $this->contacts->index($request->validated(), (int) $request->input('per_page', 15));
+        return AdminContactResource::collection($data['contacts'])->additional(['summary' => $data['summary']])->response();
     }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
+    public function show(int $contact): JsonResponse
     {
-        //
+        return response()->json(['data' => new AdminContactResource($this->contacts->show($contact))]);
     }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
+    public function update(UpdateContactRequest $request, int $contact): JsonResponse
     {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
+        return response()->json(['message' => 'Đã lưu xử lý liên hệ.', 'data' => new AdminContactResource(
+            $this->contacts->update($contact, $request->validated(), (int) $request->user()->id)
+        )]);
     }
 }

@@ -65,6 +65,8 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->bind(\App\Contracts\Repositories\ContactRepositoryInterface::class, \App\Repositories\ContactRepository::class);
+        $this->app->bind(\App\Contracts\Services\ContactServiceInterface::class, \App\Services\ContactService::class);
         $this->app->bind(AdminProductReviewRepositoryInterface::class, AdminProductReviewRepository::class);
         $this->app->bind(AdminProductReviewServiceInterface::class, AdminProductReviewService::class);
         $this->app->bind(ProductRepositoryInterface::class, ProductRepository::class);
@@ -104,5 +106,6 @@ class AppServiceProvider extends ServiceProvider
 
         $this->loadRoutesFrom(base_path('routes/inventory-management.php'));
         $this->loadRoutesFrom(base_path('routes/product-reviews.php'));
+        $this->loadRoutesFrom(base_path('routes/contacts.php'));
     }
 }

@@ -56,6 +56,7 @@ class AdminRoleSeeder extends Seeder
             'review.moderate',
             'review.reply',
             'contact.view',
+            'contact.update',
         ];
         $staffRole->syncPermissions($staffPermissions);
         $customerRole->syncPermissions([]);

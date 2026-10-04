@@ -71,6 +71,7 @@ class PermissionSeeder extends Seeder
             'review.moderate',
             'review.reply',
             'contact.view',
+            'contact.update',
         ];
         foreach ($permissions as $permissionName) {
             Permission::firstOrCreate(['name' => $permissionName, 'guard_name' => $guardName]);
