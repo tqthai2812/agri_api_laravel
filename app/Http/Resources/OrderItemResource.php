@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Support\OrderMoney;
+use App\Support\OrderReviewState;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
@@ -39,37 +40,48 @@ class OrderItemResource extends JsonResource
             'product' => $productData,
         ];
 
+        $order = $this->relationLoaded('order') ? $this->order : null;
+        $userId = $request->user() ? (int) $request->user()->id : null;
+        $owner = OrderReviewState::owns($order, $userId);
+        $review = OrderReviewState::review($this->resource);
+
         return [
             'id' => $this->id,
             'order_id' => $this->order_id,
             'package_id' => $this->package_id,
             'quantity' => (int) $this->quantity,
             'price' => (float) $this->price,
-            'subtotal' => (float) OrderMoney::decimal(
-                OrderMoney::multiply(
-                    OrderMoney::cents($this->price),
-                    (int) $this->quantity
-                )
-            ),
-
+            'subtotal' => (float) OrderMoney::decimal(OrderMoney::multiply(
+                OrderMoney::cents($this->price),
+                (int) $this->quantity,
+            )),
             'product_name' => $productName,
             'variant_name' => $variantName,
             'sku' => $sku,
             'size' => $size === null ? null : (float) $size,
             'unit' => $unit,
-
-            'discount_amount' => $this->discount_amount === null
-                ? null : (float) $this->discount_amount,
-
-            'net_sales_amount' => $this->net_sales_amount === null
-                ? null : (float) $this->net_sales_amount,
-
-            // Không công khai giá vốn cho khách hàng thông thường.
+            'discount_amount' => $this->discount_amount === null ? null : (float) $this->discount_amount,
+            'net_sales_amount' => $this->net_sales_amount === null ? null : (float) $this->net_sales_amount,
             'cost_total' => $this->when(
                 $request->user()?->can('order.view') ?? false,
-                fn() => $this->cost_total
+                fn() => $this->cost_total,
             ),
-
+            'can_review' => OrderReviewState::canReview($order, $this->resource, $userId),
+            // Chỉ chủ đơn nhận nội dung đánh giá riêng của mình, kể cả trạng thái ẩn.
+            'review' => $this->when($owner && $this->relationLoaded('productReview'), fn() => $review ? [
+                'id' => $review->id,
+                'rating' => $review->trashed() ? null : $review->rating,
+                'content' => $review->trashed() ? null : $review->content,
+                'status' => $review->status,
+                'is_deleted' => $review->trashed(),
+                'status_label' => $review->trashed() ? 'Đã xóa' : match ($review->status) {
+                    'published' => 'Đã đăng',
+                    'pending' => 'Chờ duyệt',
+                    'hidden' => 'Đã ẩn',
+                    default => 'Đã đánh giá',
+                },
+                'created_at' => $review->created_at?->toIso8601String(),
+            ] : null),
             'package' => [
                 'id' => $this->package_id,
                 'sku' => $sku,

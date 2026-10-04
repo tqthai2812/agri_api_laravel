@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Support\OrderPaymentState;
+use App\Support\OrderReviewState;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -16,6 +17,23 @@ class OrderResource extends JsonResource
         $payment = $payments->where('status', 'paid')->sortByDesc('id')->first()
             ?? $payments->sortByDesc('id')->first();
         $state = $loaded ? OrderPaymentState::of($this->resource, $payments) : [];
+        $userId = $request->user() ? (int) $request->user()->id : null;
+        $itemsLoaded = $this->relationLoaded('items');
+        $items = $itemsLoaded ? $this->items : collect();
+        $ownsOrder = OrderReviewState::owns($this->resource, $userId);
+
+        // Cấp order cha cho resource dòng hàng, không phát sinh truy vấn từng dòng.
+        foreach ($items as $item) {
+            $item->setRelation('order', $this->resource);
+        }
+
+        $reviewableCount = $items->filter(
+            fn($item) => OrderReviewState::canReview($this->resource, $item, $userId)
+        )->count();
+        $reviewedCount = $items->filter(
+            fn($item) => OrderReviewState::review($item) !== null
+        )->count();
+
         return [
             'id' => $this->id,
             'invoice_code' => $code,
@@ -62,6 +80,10 @@ class OrderResource extends JsonResource
                 default => 'Không xác định',
             },
             ...$state,
+            'can_review' => $ownsOrder && $reviewableCount > 0,
+            'reviewable_items_count' => $this->when($itemsLoaded && $ownsOrder, $reviewableCount),
+            'reviewed_items_count' => $this->when($itemsLoaded && $ownsOrder, $reviewedCount),
+            'has_reviews' => $ownsOrder && $reviewedCount > 0,
             'items_count' => $this->whenCounted('items'),
             'address' => new OrderAddressResource($this->whenLoaded('orderAddress')),
             'receiver_address' => new OrderAddressResource($this->whenLoaded('orderAddress')),
