@@ -21,6 +21,7 @@ class ProductReviewResource extends JsonResource
         return [
             'id' => $this->id,
             'parent_id' => $this->parent_id,
+            'is_shop_reply' => $this->parent_id !== null && (bool) $this->is_shop_reply,
             'rating' => $this->rating,
             'content' => $this->content,
             'status' => $this->status,

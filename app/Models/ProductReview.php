@@ -27,9 +27,10 @@ class ProductReview extends Model
         'content',
         'rating',
         'status',
+        'is_shop_reply',
     ];
 
-    protected $casts = ['rating' => 'integer'];
+    protected $casts = ['rating' => 'integer', 'is_shop_reply' => 'boolean'];
 
     public function scopePublishedRoots(Builder $query): Builder
     {

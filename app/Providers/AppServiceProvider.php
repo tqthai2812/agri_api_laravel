@@ -56,10 +56,17 @@ use App\Contracts\Services\ProductReviewServiceInterface;
 use App\Repositories\ProductReviewRepository;
 use App\Services\ProductReviewService;
 
+use App\Contracts\Repositories\AdminProductReviewRepositoryInterface;
+use App\Contracts\Services\AdminProductReviewServiceInterface;
+use App\Repositories\AdminProductReviewRepository;
+use App\Services\AdminProductReviewService;
+
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->bind(AdminProductReviewRepositoryInterface::class, AdminProductReviewRepository::class);
+        $this->app->bind(AdminProductReviewServiceInterface::class, AdminProductReviewService::class);
         $this->app->bind(ProductRepositoryInterface::class, ProductRepository::class);
         $this->app->bind(ProductServiceInterface::class, ProductService::class);
         $this->app->bind(ImageUploadServiceInterface::class, ImageUploadService::class);
