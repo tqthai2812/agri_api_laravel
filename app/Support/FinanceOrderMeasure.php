@@ -112,6 +112,7 @@ final class FinanceOrderMeasure
             "gross_profit" =>
             $profit === null ? null : FinanceMoney::decimal($profit),
             "profit_complete" => $profit !== null,
+            "sales_complete" => $consistent,
             "issues" => $issues,
         ];
     }

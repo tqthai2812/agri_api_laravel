@@ -10,5 +10,6 @@ interface ProfitReportServiceInterface
         DashboardPeriod $p,
         array $pages = [],
         bool $export = false,
+        ?string $dataset = null,
     ): array;
 }

@@ -12,6 +12,7 @@ class DatabaseSeeder extends Seeder
             // Users, roles và permissions
             PermissionSeeder::class,
             AdminRoleSeeder::class,
+            DataExportPermissionSeeder::class,
 
             // Danh mục và dữ liệu nền sản phẩm
             CategorySeeder::class,

@@ -80,8 +80,14 @@ Route::prefix("api/v1")
             ProfitReportController::class,
             "show",
         ])->middleware("can:report.profit.view");
-        Route::get("reports/profit/export", [
+        Route::get("reports/profit/skus", [
             ProfitReportController::class,
-            "export",
-        ])->middleware(["can:report.profit.view", "can:report.profit.export"]);
+            "skus",
+        ])->middleware("can:report.profit.view");
+        Route::get("reports/profit/skus/{key}", [
+            ProfitReportController::class,
+            "skuDetail",
+        ])
+            ->where("key", "[a-f0-9]{64}")
+            ->middleware("can:report.profit.view");
     });

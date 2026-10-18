@@ -159,6 +159,16 @@ Route::prefix('v1')
             'locations/shipping-regions',
             [LocationController::class, 'shippingRegions']
         );
+
+        Route::get('inventory/{package}/lots/{lot}/adjustment', [
+            InventoryController::class,
+            'adjustmentContext',
+        ])->whereNumber(['package', 'lot']);
+
+        Route::get('inventory-adjustments/{eventKey}', [
+            InventoryController::class,
+            'adjustmentEvent',
+        ]);
     });
 
 Route::prefix('v1/public')->group(function () {

@@ -21,6 +21,7 @@ class ProfitReportService implements ProfitReportServiceInterface
         DashboardPeriod $p,
         array $pages = [],
         bool $export = false,
+        ?string $dataset = null,
     ): array {
         $limit = $export ? 10000 : 20;
         $counts = ["orders" => 0, "expenses" => 0, "issues" => 0];
@@ -31,8 +32,13 @@ class ProfitReportService implements ProfitReportServiceInterface
             $pages,
             $limit,
             $export,
+            $dataset,
         ) {
             $index = $counts[$kind]++;
+            // Luôn tính đủ tổng; chỉ giữ các dòng của bảng cần xuất.
+            if ($export && $dataset !== null && $dataset !== $kind) {
+                return;
+            }
             $page = $export ? 1 : (int) ($pages[$kind . "_page"] ?? 1);
             if ($export && $counts[$kind] > $limit) {
                 throw ValidationException::withMessages([
@@ -238,7 +244,7 @@ class ProfitReportService implements ProfitReportServiceInterface
         foreach ($categories as &$c) {
             foreach (["positive", "reversals", "net"] as $key) {
                 $c[$key] = FinanceMoney::decimal($c[$key]);
-            };
+            }
         }
         unset($c);
         $data = [

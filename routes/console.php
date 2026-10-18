@@ -29,3 +29,6 @@ Artisan::command('vnpay:reconcile', function () {
 });
 
 Schedule::command('vnpay:reconcile')->everyMinute()->withoutOverlapping(30);
+
+\Illuminate\Support\Facades\Schedule::command('exports:maintain')
+    ->everyFiveMinutes();
