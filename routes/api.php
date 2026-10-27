@@ -26,6 +26,7 @@ use App\Http\Controllers\Client\V1\PublicProductFilterController;
 use App\Http\Controllers\Client\V1\ShippingAddressController;
 use App\Http\Controllers\Client\V1\ProfileController;
 use App\Http\Controllers\Client\V1\OrderController as ClientOrderController;
+use App\Http\Controllers\Admin\V1\OrderPickingPlanController;
 use App\Http\Controllers\Client\V1\WishlistController;
 use App\Http\Controllers\Client\V1\LocationController;
 
@@ -109,6 +110,10 @@ Route::prefix('v1')
         Route::get('orders', [OrderController::class, 'index']);
         Route::get('orders/{order}', [OrderController::class, 'show']);
         Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus']);
+        Route::post('orders/{order}/picking-plan', [
+            OrderPickingPlanController::class,
+            'store',
+        ])->whereNumber('order');
 
         Route::get('cart', [CartController::class, 'show']);
         Route::post('cart/items', [CartController::class, 'store']);

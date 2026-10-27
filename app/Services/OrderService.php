@@ -121,7 +121,7 @@ class OrderService implements OrderServiceInterface
                     'updated_at' => now(),
                 ]);
             }
-            if ($status === 'confirmed') $this->stockService->assertReserved($order);
+            if ($status === 'confirmed') $this->stockService->prepare($order, $actorId);
             if ($status === 'shipping') $this->stockService->issue($order, $actorId);
             if ($status === 'completed') {
                 $issued = InventoryDocument::where('order_id', $order->id)

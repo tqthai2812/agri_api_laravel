@@ -12,6 +12,11 @@ class OrderPrintService
 {
     public function document(int $id, string $type): array
     {
+        return DB::transaction(fn() => $this->buildDocument($id, $type));
+    }
+
+    private function buildDocument(int $id, string $type): array
+    {
         $order = Order::query()->with([
             'orderAddress',
             'deliveryMethod:id,name',
@@ -134,12 +139,16 @@ class OrderPrintService
         }
 
         $stockState = null;
+        $planInfo = [];
         if ($type === 'picking') {
-            [$items, $stockState, $stockIssues] = $this->lots($order, $items);
+            [$items, $stockState, $stockIssues, $planInfo] = $this->lots($order, $items);
             $issues = array_merge($issues, $stockIssues);
-            if ($stockState === 'not_issued') {
-                $notes[] = 'Lô xuất được chốt khi chuyển đơn sang Đang giao. Phiếu này dùng để chuẩn bị và kiểm đếm hàng.';
+            if ($stockState === 'allocated') {
+                $notes[] = 'Lô và số lượng đã được giữ cho đơn này. Tồn vật lý chỉ giảm khi chuyển Đang giao.';
             }
+            $planInfo['can_prepare_picking'] = $order->order_status === 'confirmed'
+                && in_array($paymentState, ['paid', 'cod_collect'], true)
+                && ($stockState === 'not_allocated' || !empty($planInfo['has_picking_plan']));
         }
 
         return [
@@ -169,7 +178,7 @@ class OrderPrintService
                 'discount' => $discount === null ? null : OrderMoney::decimal($discount),
                 'shipping' => $shipping === null ? null : OrderMoney::decimal($shipping),
                 'total' => $total === null ? null : OrderMoney::decimal($total),
-            ]] : ['stock_state' => $stockState]),
+            ]] : ['stock_state' => $stockState, ...$planInfo]),
             'items' => $items,
             'notes' => $notes,
             'issues' => array_values(array_unique($issues)),
@@ -180,15 +189,17 @@ class OrderPrintService
     private function lots(Order $order, array $items): array
     {
         $ids = array_column($items, 'id');
+        $documents = DB::table('inventory_documents')->where('order_id', $order->id)
+            ->where('document_type', 'sale_issue')->orderBy('id')->get();
+        $document = $documents->first();
+        $planned = $order->order_status === 'confirmed' && $documents->count() === 1 && $document->status === 'draft';
+        $issued = in_array($order->order_status, ['shipping', 'completed'], true)
+            && $documents->count() === 1 && $document->status === 'posted';
         $rows = DB::table('inventory_issue_allocations as a')
             ->leftJoin('inventory_document_items as di', 'di.id', '=', 'a.document_item_id')
             ->leftJoin('inventory_documents as d', 'd.id', '=', 'di.document_id')
             ->leftJoin('inventory_lots as l', 'l.id', '=', 'a.lot_id')
-            ->where(function ($query) use ($ids, $order) {
-                $query->whereIn('a.order_item_id', $ids)
-                    ->orWhereIn('di.order_item_id', $ids)
-                    ->orWhere('d.order_id', $order->id);
-            })
+            ->where(fn($q) => $q->whereIn('a.order_item_id', $ids)->orWhereIn('di.order_item_id', $ids)->orWhere('d.order_id', $order->id))
             ->select([
                 'a.id',
                 'a.order_item_id',
@@ -203,20 +214,51 @@ class OrderPrintService
                 'd.document_type',
                 'd.status',
                 'd.document_number',
+                'd.event_key',
                 'l.package_id as lot_package_id',
                 'l.lot_code',
                 'l.expires_on',
+                'l.status as lot_status',
+                'l.quantity_on_hand',
             ])->orderBy('a.id')->get();
-
-        $hasDocument = DB::table('inventory_documents')->where('order_id', $order->id)
-            ->where('document_type', 'sale_issue')->exists();
-        $notIssued = $order->order_status === 'confirmed' && !$hasDocument && $rows->isEmpty();
         $issues = [];
-        $byItem = [];
-        foreach ($items as $item) {
-            $byItem[$item['id']] = $item;
+        $notPlanned = $order->order_status === 'confirmed' && $documents->isEmpty() && $rows->isEmpty();
+        if ($notPlanned) $issues[] = 'Đơn chưa chốt lô soạn hàng. Bấm Chốt lô soạn hàng trước khi in.';
+        elseif (!$planned && !$issued) $issues[] = 'Trạng thái phiếu xuất chưa khớp trạng thái đơn. Cần đối chiếu kho.';
+        if ($document && $document->event_key !== 'sale-issue:order:' . $order->id) {
+            $issues[] = 'Phiếu xuất thiếu mã liên kết hợp lệ với đơn.';
         }
+        $held = [];
+        if ($planned) {
+            try {
+                $held = \App\Support\PickingLotHolds::quantities(array_column($items, 'package_id'));
+            } catch (ValidationException $exception) {
+                foreach ($exception->errors() as $messages) $issues = array_merge($issues, $messages);
+            }
+            $lineIds = DB::table('inventory_document_items')->where('document_id', $document->id)->pluck('id');
+            if (
+                $document->posted_at !== null || $document->posted_by !== null
+                || DB::table('inventory_transactions')->whereIn('document_item_id', $lineIds)->exists()
+            ) {
+                $issues[] = 'Phiếu soạn nháp đã có dấu vết xuất kho. Cần đối chiếu trước khi in.';
+            }
+            $reservations = DB::table('stock_reservations')->whereIn('order_item_id', $ids)->get();
+            if ($reservations->count() !== count($items)) $issues[] = 'Số dòng giữ hàng chưa khớp đơn.';
+            foreach ($items as $item) {
+                $reservation = $reservations->firstWhere('order_item_id', $item['id']);
+                if (
+                    !$reservation || $reservation->status !== 'active'
+                    || (int) $reservation->package_id !== (int) $item['package_id']
+                    || (int) $reservation->quantity !== $item['quantity']
+                ) {
+                    $issues[] = 'Dữ liệu giữ hàng không khớp phiếu soạn.';
+                }
+            }
+        }
+        $byItem = [];
+        foreach ($items as $item) $byItem[$item['id']] = [...$item, 'lots' => []];
         $byDocumentItem = [];
+        $references = [];
         foreach ($rows as $row) {
             $item = $byItem[(int) $row->order_item_id] ?? null;
             if (
@@ -224,39 +266,57 @@ class OrderPrintService
                 || (int) $row->order_id !== (int) $order->id
                 || (int) $row->package_id !== (int) $item['package_id']
                 || (int) $row->lot_package_id !== (int) $item['package_id']
-                || $row->document_type !== 'sale_issue' || $row->status !== 'posted'
-                || (int) $row->quantity <= 0 || (int) $row->quantity_change >= 0
-                || !filled($row->lot_code)
+                || !$document || (int) $row->document_id !== (int) $document->id
+                || $row->document_type !== 'sale_issue'
+                || !in_array($row->status, $planned ? ['draft'] : ['posted'], true)
+                || (int) $row->quantity <= 0 || (int) $row->quantity_change >= 0 || !filled($row->lot_code)
             ) {
-                $issues[] = 'Liên kết lô xuất và phiếu xuất chưa khớp đơn hàng.';
+                $issues[] = 'Liên kết lô và phiếu xuất chưa khớp đơn hàng.';
                 continue;
+            }
+            if ($planned && ($row->lot_status !== 'available'
+                || ($row->expires_on !== null && $row->expires_on < now()->toDateString()))) {
+                $issues[] = 'Lô đã chốt hết hạn, bị khóa hoặc cách ly. Cần chọn lại lô và in lại phiếu.';
+            }
+            if ($planned && (int) ($held[$row->lot_id] ?? 0) > (int) $row->quantity_on_hand) {
+                $issues[] = 'Tồn lô không đủ cho các phiếu soạn đang giữ. Cần đối chiếu kho.';
             }
             $byDocumentItem[(int) $row->document_item_id]['quantity'] =
                 ($byDocumentItem[(int) $row->document_item_id]['quantity'] ?? 0) + (int) $row->quantity;
             $byDocumentItem[(int) $row->document_item_id]['expected'] = -(int) $row->quantity_change;
             $byItem[$item['id']]['lots'][] = [
+                'lot_id' => (int) $row->lot_id,
                 'lot_code' => $row->lot_code,
                 'quantity' => (int) $row->quantity,
                 'expires_on' => $row->expires_on,
                 'document_number' => $row->document_number,
             ];
+            $references[] = [$row->id, $row->document_item_id, $row->lot_id, $row->quantity];
         }
-
         foreach ($byDocumentItem as $row) {
-            if ($row['quantity'] !== $row['expected']) {
-                $issues[] = 'Số lượng phân bổ lô chưa khớp dòng phiếu xuất.';
+            if ($row['quantity'] !== $row['expected']) $issues[] = 'Số lượng phân bổ lô chưa khớp dòng phiếu xuất.';
+        }
+        if ($document) {
+            $lines = DB::table('inventory_document_items')->where('document_id', $document->id)->get();
+            if ($lines->count() !== count($items)) $issues[] = 'Số dòng phiếu xuất chưa khớp đơn.';
+            foreach ($items as $item) {
+                if ($lines->where('order_item_id', $item['id'])->count() !== 1) $issues[] = 'Dòng đơn chưa liên kết đúng một dòng phiếu xuất.';
             }
         }
         foreach ($byItem as &$item) {
-            $item['lots'] ??= [];
             $item['allocated_quantity'] = array_sum(array_column($item['lots'], 'quantity'));
-            if (!$notIssued && $item['allocated_quantity'] !== $item['quantity']) {
-                $issues[] = 'Số lượng lô đã xuất chưa khớp số lượng cần soạn. Cần kiểm tra kho trước khi in.';
+            if (!$notPlanned && $item['allocated_quantity'] !== $item['quantity']) {
+                $issues[] = 'Số lượng lô chưa khớp số lượng cần soạn. Cần kiểm tra trước khi in.';
             }
         }
         unset($item);
-
-        return [array_values($byItem), $notIssued ? 'not_issued' : ($issues ? 'review' : 'issued'), $issues];
+        $state = $notPlanned ? 'not_allocated' : ($issues ? 'review' : ($planned ? 'allocated' : 'issued'));
+        $info = [
+            'picking_plan_reference' => $document && $references
+                ? $document->document_number . '/' . substr(hash('sha256', json_encode($references)), 0, 10) : null,
+            'has_picking_plan' => $planned,
+        ];
+        return [array_values($byItem), $state, $issues, $info];
     }
 
     private function cents(mixed $value): ?int

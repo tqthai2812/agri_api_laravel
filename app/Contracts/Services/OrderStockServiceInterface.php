@@ -12,10 +12,8 @@ interface OrderStockServiceInterface
     // Các thao tác dưới đây phải chạy trong transaction.
     // Caller phải khóa dòng orders trước nếu đơn đã tồn tại.
     public function reserve(Order $order): void;
-
     public function assertReserved(Order $order): void;
-
+    public function prepare(Order $order, int $actorId, bool $reallocate = false): void;
     public function release(Order $order): void;
-
     public function issue(Order $order, int $actorId): void;
 }

@@ -4,9 +4,6 @@ namespace App\Services;
 
 use App\Contracts\Repositories\OrderStockRepositoryInterface;
 use App\Contracts\Services\OrderStockServiceInterface;
-use App\Models\InventoryDocument;
-use App\Models\InventoryDocumentItem;
-use App\Models\InventoryIssueAllocation;
 use App\Models\InventoryLot;
 use App\Models\InventoryLotMovement;
 use App\Models\InventoryTransaction;
@@ -127,9 +124,24 @@ class OrderStockService implements OrderStockServiceInterface
         $this->reservedState($order);
     }
 
+    public function prepare(Order $order, int $actorId, bool $reallocate = false): void
+    {
+        [$items,, $packages] = $this->reservedState($order);
+        $lots = $this->repository->lots($packages->keys()->all(), true);
+        $allReservations = $this->repository->activeReservations($packages->keys()->all(), true);
+        foreach ($items->groupBy('package_id') as $packageId => $group) {
+            $valid = (int) $lots->where('package_id', $packageId)
+                ->filter(fn($lot) => $this->eligible($lot))->sum('quantity_on_hand');
+            $held = (int) $allReservations->where('package_id', $packageId)->sum('quantity');
+            if ($valid < $held) $this->fail('Tồn lô hợp lệ không đủ cho lượng đang giữ. Cần xử lý kho hoặc các đơn liên quan trước khi chốt lô.');
+        }
+        app(OrderPickingPlan::class)->prepare($order, $items, $lots, $actorId, $reallocate);
+    }
+
     public function release(Order $order): void
     {
         [, $reservations] = $this->reservedState($order);
+        app(OrderPickingPlan::class)->cancel($order);
 
         foreach ($reservations as $reservation) {
             $reservation->update([
@@ -145,17 +157,6 @@ class OrderStockService implements OrderStockServiceInterface
     public function issue(Order $order, int $actorId): void
     {
         [$items, $reservations, $packages] = $this->reservedState($order);
-
-        if (
-            InventoryDocument::query()
-            ->where('order_id', $order->id)
-            ->where('document_type', 'sale_issue')
-            ->exists()
-        ) {
-            $this->fail(
-                'Đơn đã có phiếu xuất. Cần đối chiếu trước khi tiếp tục.'
-            );
-        }
 
         $lots = $this->repository->lots($packages->keys()->all(), true);
 
@@ -184,18 +185,9 @@ class OrderStockService implements OrderStockServiceInterface
 
         $now = now();
 
-        $document = InventoryDocument::create([
-            'document_number' => 'PX-DH-' . $order->id,
-            'event_key' => 'sale-issue:order:' . $order->id,
-            'document_type' => 'sale_issue',
-            'status' => 'draft',
-            'supplier_id' => null,
-            'supplier_name' => null,
-            'order_id' => $order->id,
-            'document_date' => $now->toDateString(),
-            'note' => 'Xuất bán cho đơn DH' . $order->id,
-            'created_by' => $actorId,
-        ]);
+        [$document, $documentItems, $allocations] = app(OrderPickingPlan::class)
+            ->lockForIssue($order, $items, $lots);
+        $lotsById = $lots->keyBy('id');
 
         foreach ($items->values() as $index => $item) {
             $package = $packages->get($item->package_id);
@@ -206,23 +198,7 @@ class OrderStockService implements OrderStockServiceInterface
                 $this->fail('Tồn vật lý không đủ để xuất.');
             }
 
-            $documentItem = InventoryDocumentItem::create([
-                'document_id' => $document->id,
-                'line_number' => $index + 1,
-                'package_id' => $item->package_id,
-                'order_item_id' => $item->id,
-                'quantity_change' => -$quantity,
-
-                // Một dòng có thể lấy nhiều lô với giá vốn khác nhau.
-                'unit_cost' => null,
-
-                'product_name' => $item->product_name,
-                'variant_name' => $item->variant_name,
-                'sku' => $item->sku,
-                'size' => $item->size,
-                'unit' => $item->unit,
-                'note' => null,
-            ]);
+            $documentItem = $documentItems->get($item->id);
 
             $transaction = InventoryTransaction::create([
                 'package_id' => $item->package_id,
@@ -234,25 +210,20 @@ class OrderStockService implements OrderStockServiceInterface
                 'quantity_after' => $before - $quantity,
                 'occurred_at' => $now,
                 'performed_by' => $actorId,
-                'note' => $document->note,
+                'note' => 'Xuất bán cho đơn DH' . $order->id,
             ]);
 
             $remaining = $quantity;
             $knownCost = 0;
             $hasUnknownCost = false;
 
-            // Repository đã xếp FEFO:
-            // có hạn trước; hạn gần trước; sau đó ngày nhập và id.
-            foreach ($lots->where('package_id', $item->package_id) as $lot) {
-                if ($remaining === 0) {
-                    break;
+            // Xuất đúng lô đã chốt trên phiếu soạn; không chọn lại FEFO khi giao.
+            foreach ($allocations->where('document_item_id', $documentItem->id) as $allocation) {
+                $lot = $lotsById->get($allocation->lot_id);
+                $take = (int) $allocation->quantity;
+                if (!$lot || !$this->eligible($lot) || $take > (int) $lot->quantity_on_hand || $take > $remaining) {
+                    $this->fail('Lô đã chốt không còn đủ điều kiện xuất. Hãy chọn lại lô và in lại phiếu soạn.');
                 }
-
-                if (!$this->eligible($lot) || $lot->quantity_on_hand <= 0) {
-                    continue;
-                }
-
-                $take = min($remaining, (int) $lot->quantity_on_hand);
                 $lotBefore = (int) $lot->quantity_on_hand;
 
                 $cost = OrderMoney::lotCost($lot->unit_cost, $take);
@@ -266,11 +237,7 @@ class OrderStockService implements OrderStockServiceInterface
                     );
                 }
 
-                InventoryIssueAllocation::create([
-                    'document_item_id' => $documentItem->id,
-                    'lot_id' => $lot->id,
-                    'order_item_id' => $item->id,
-                    'quantity' => $take,
+                $allocation->update([
                     'unit_cost' => $lot->unit_cost,
                     'cost_amount' => $cost,
                 ]);
@@ -317,6 +284,8 @@ class OrderStockService implements OrderStockServiceInterface
         }
 
         $document->update([
+            'document_date' => $now->toDateString(),
+            'note' => 'Xuất bán cho đơn DH' . $order->id,
             'status' => 'posted',
             'posted_by' => $actorId,
             'posted_at' => $now,

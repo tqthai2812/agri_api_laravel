@@ -307,51 +307,39 @@ class InventoryService implements InventoryServiceInterface
     ): InventoryTransaction {
         return $this->write(function () use ($data, $performedBy) {
             $type = $data['transaction_type'];
-
             if (!in_array($type, ['import', 'adjustment'], true)) {
                 $this->fail(
                     'transaction_type',
                     'Xuất bán phải thực hiện từ đơn hàng.'
                 );
             }
-
             $package = $this->lockPackage((int) $data['package_id']);
             $eventKey = 'manual:' . $data['event_key'];
-
             $this->assertEventUnused($eventKey);
-
             $lots = $this->lockLots($package->id);
             $this->assertConsistent($package, $lots);
-
             $reserved = $this->reservedQuantity($package->id);
             $validBefore = $this->validLotQuantity($lots);
-
             $change = (int) $data['quantity_change'];
             $before = (int) $package->quantity_available;
             $after = $before + $change;
             $note = $data['note'] ?? null;
-
             if ($change === 0 || $after < 0 || $after > self::MAX_STOCK) {
                 $this->fail('quantity_change', 'Số lượng sau thao tác không hợp lệ.');
             }
-
             if ($type === 'import') {
                 if ($change <= 0) {
                     $this->fail('quantity_change', 'Nhập kho phải có số lượng dương.');
                 }
-
                 $supplier = DB::table('suppliers')
                     ->where('id', $data['supplier_id'])
                     ->where('is_active', true)
                     ->sharedLock()
                     ->first();
-
                 if (!$supplier) {
                     $this->fail('supplier_id', 'Nhà cung cấp không còn hoạt động.');
                 }
-
                 $unitCost = (string) $data['unit_cost'];
-
                 $documentId = $this->createDocument(
                     'supplier_receipt',
                     $eventKey,
@@ -359,7 +347,6 @@ class InventoryService implements InventoryServiceInterface
                     $note,
                     $supplier
                 );
-
                 $itemId = $this->createItem(
                     $documentId,
                     1,
@@ -368,7 +355,6 @@ class InventoryService implements InventoryServiceInterface
                     $unitCost,
                     $note
                 );
-
                 $lotId = DB::table('inventory_lots')->insertGetId([
                     'package_id' => $package->id,
                     'receipt_item_id' => $itemId,
@@ -384,30 +370,26 @@ class InventoryService implements InventoryServiceInterface
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
-
                 $lotBefore = 0;
                 $lotAfter = $change;
             } else {
                 $lot = $lots->firstWhere('id', (int) $data['lot_id']);
-
                 if (!$lot) {
                     $this->fail('lot_id', 'Lô không thuộc quy cách này.');
                 }
-
                 $lotId = (int) $lot->id;
                 $lotBefore = (int) $lot->quantity_on_hand;
                 $lotAfter = $lotBefore + $change;
-
                 if ($lotAfter < 0 || $lotAfter > self::MAX_STOCK) {
                     $this->fail('quantity_change', 'Lô không đủ tồn hoặc vượt giới hạn.');
                 }
-
+                if ($change < 0) {
+                    \App\Support\PickingLotHolds::assertCanReduce($lot, $lotAfter);
+                }
                 $unitCost = $lot->unit_cost === null
                     ? null
                     : (string) $lot->unit_cost;
-
                 $expenseCategory = null;
-
                 if ($change < 0) {
                     if ($unitCost === null) {
                         $this->fail(
@@ -416,25 +398,21 @@ class InventoryService implements InventoryServiceInterface
                                 . 'khi ghi giảm và ghi nhận chi phí.'
                         );
                     }
-
                     $expenseCategory = DB::table('expense_categories')
                         ->where('id', $data['expense_category_id'])
                         ->where('is_active', true)
                         ->sharedLock()
                         ->first();
-
                     if (!$expenseCategory) {
                         $this->fail('expense_category_id', 'Nhóm chi phí không hợp lệ.');
                     }
                 }
-
                 $documentId = $this->createDocument(
                     'adjustment',
                     $eventKey,
                     $performedBy,
                     $note
                 );
-
                 // Giá lô có thể có 4 số thập phân; field dòng phiếu chỉ có 2.
                 // Không làm tròn mất dữ liệu: giữ giá chính xác ở movement.
                 $itemId = $this->createItem(
@@ -445,12 +423,10 @@ class InventoryService implements InventoryServiceInterface
                     null,
                     $note
                 );
-
                 DB::table('inventory_lots')->where('id', $lotId)->update([
                     'quantity_on_hand' => $lotAfter,
                     'updated_at' => now(),
                 ]);
-
                 if ($change < 0) {
                     DB::table('expenses')->insert([
                         'entry_key' => 'inventory-adjustment:' . $data['event_key'],
@@ -470,18 +446,14 @@ class InventoryService implements InventoryServiceInterface
                     ]);
                 }
             }
-
             $lotsAfter = $this->lockLots($package->id);
-
             $this->assertReservationCapacity(
                 $validBefore,
                 $this->validLotQuantity($lotsAfter),
                 $reserved
             );
-
             $package->update(['quantity_available' => $after]);
             $this->assertConsistent($package, $lotsAfter);
-
             $transaction = $this->journal(
                 $package,
                 $itemId,
@@ -496,10 +468,10 @@ class InventoryService implements InventoryServiceInterface
                 $unitCost,
                 $note
             );
-
             return $this->loadedTransaction($transaction);
         });
     }
+
 
     public function updateTransaction(
         InventoryTransaction $transaction,

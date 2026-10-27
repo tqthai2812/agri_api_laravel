@@ -57,7 +57,7 @@ class PostInventoryDocumentRequest extends FormRequest
             'lots.*.manufactured_on' => [
                 'nullable',
                 'date_format:Y-m-d',
-                'before_or_equal:today',
+                'before_or_equal:' . now('Asia/Ho_Chi_Minh')->toDateString(),
             ],
 
             'lots.*.expires_on' => [

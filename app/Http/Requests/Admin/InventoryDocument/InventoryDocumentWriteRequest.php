@@ -26,7 +26,7 @@ abstract class InventoryDocumentWriteRequest extends FormRequest
             'document_date' => [
                 'required',
                 'date_format:Y-m-d',
-                'before_or_equal:today',
+                'before_or_equal:' . now('Asia/Ho_Chi_Minh')->toDateString(),
             ],
 
             'note' => ['nullable', 'string', 'max:10000'],
