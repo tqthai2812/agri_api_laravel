@@ -10,6 +10,7 @@ use App\Http\Resources\InventoryTransactionResource;
 use App\Http\Resources\ProductPackageInventoryResource;
 use App\Models\InventoryTransaction;
 use App\Models\ProductPackage;
+use App\Support\InventoryLotReservations;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -28,7 +29,7 @@ class InventoryController extends Controller implements HasMiddleware
         return [
             new Middleware(
                 'permission:inventory.view',
-                only: ['index', 'show', 'transactions', 'lots', 'adjustmentContext', 'adjustmentEvent']
+                only: ['index', 'show', 'transactions', 'lots', 'reservations', 'adjustmentContext', 'adjustmentEvent']
             ),
             new Middleware(
                 'permission:inventory.create',
@@ -59,6 +60,10 @@ class InventoryController extends Controller implements HasMiddleware
             'lot_quantity' => $lotQuantity,
             'lot_count' => $readInteger('lot_count'),
             'reserved_quantity' => $readInteger('reserved_quantity'),
+            'reserved_lot_quantity' => $readInteger('reserved_lot_quantity'),
+            'legacy_unallocated_quantity' => $readInteger('legacy_unallocated_quantity'),
+            'reservation_consistent' => $attributes['reservation_consistent'] ?? null,
+            'reservation_issues' => $attributes['reservation_issues'] ?? [],
             'available_to_sell' => $readInteger('available_to_sell'),
             'reorder_level' => (int) $package->reorder_level,
             'stock_consistent' => $lotQuantity === null
@@ -193,6 +198,24 @@ class InventoryController extends Controller implements HasMiddleware
             ],
         ]);
     }
+    public function reservations(Request $request, ProductPackage $package): JsonResponse
+    {
+        $filters = $request->validate([
+            'status' => ['sometimes', Rule::in(['active', 'consumed', 'released', 'all'])],
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'per_page' => ['sometimes', 'integer', 'between:1,100'],
+        ]);
+        return DB::transaction(function () use ($package, $filters) {
+            $page = $this->inventoryService->listReservations($package->id, $filters, (int) ($filters['per_page'] ?? 20));
+            return response()->json(['data' => $page->items(), 'meta' => [
+                'current_page' => $page->currentPage(),
+                'last_page' => $page->lastPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+            ]])->header('Cache-Control', 'private, no-store');
+        });
+    }
+
     public function initializeLots(
         Request $request,
         ProductPackage $package
@@ -345,6 +368,9 @@ class InventoryController extends Controller implements HasMiddleware
             $reserved = (int) DB::table('stock_reservations')->where('package_id', $package)
                 ->where('status', 'active')->sum('quantity');
 
+            $reservationState = InventoryLotReservations::snapshot([$package]);
+            $lotReservation = InventoryLotReservations::describe($row, $reservationState);
+
             return response()->json(['data' => [
                 'package' => [
                     'id' => (int) $sku->id,
@@ -355,6 +381,7 @@ class InventoryController extends Controller implements HasMiddleware
                     'unit' => $sku->unit,
                 ],
                 'lot' => [
+                    ...$lotReservation,
                     'id' => (int) $row->id,
                     'package_id' => (int) $row->package_id,
                     'lot_code' => $row->lot_code,
@@ -366,6 +393,9 @@ class InventoryController extends Controller implements HasMiddleware
                         && ($row->expires_on === null || $row->expires_on >= $today),
                 ],
                 'stock' => [
+                    'reservation_consistent' => $lotReservation['reservation_consistent'],
+                    'reservation_issues' => $lotReservation['reservation_issues'],
+                    'legacy_unallocated_quantity' => $lotReservation['legacy_unallocated_quantity'],
                     'physical' => (int) $sku->quantity_available,
                     'lot_quantity' => $lotQuantity,
                     'eligible' => $eligible,

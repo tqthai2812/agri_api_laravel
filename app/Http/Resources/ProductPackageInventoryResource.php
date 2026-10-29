@@ -67,6 +67,12 @@ class ProductPackageInventoryResource extends JsonResource
             'lot_quantity' => $lotQuantity,
             'lot_count' => $lotCount,
             'reserved_quantity' => $reservedQuantity,
+            'reserved_lot_quantity' => $this->integerAttribute('reserved_lot_quantity'),
+            'reserved_new_quantity' => $this->integerAttribute('reserved_new_quantity'),
+            'reserved_legacy_quantity' => $this->integerAttribute('reserved_legacy_quantity'),
+            'legacy_unallocated_quantity' => $this->integerAttribute('legacy_unallocated_quantity'),
+            'reservation_consistent' => $package->getAttributes()['reservation_consistent'] ?? null,
+            'reservation_issues' => $package->getAttributes()['reservation_issues'] ?? [],
 
             'stock_consistent' => $lotQuantity === null
                 ? null

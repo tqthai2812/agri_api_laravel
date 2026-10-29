@@ -71,6 +71,11 @@ class InventoryLot extends Model
         );
     }
 
+    public function reservationLots(): HasMany
+    {
+        return $this->hasMany(StockReservationLot::class, 'lot_id');
+    }
+
     public function movements(): HasMany
     {
         return $this->hasMany(

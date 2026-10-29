@@ -122,7 +122,11 @@ final class ProfitReport implements ReportDefinition, RequiresReportPermissions
                 [
                     $this->column("code", "Đơn hàng", "text", 20),
                     $this->column("completed_at", "Hoàn thành", "text", 24),
-                    $this->column("net_sales", "Doanh thu hàng", "decimal", 24),
+                    $this->column("gross_sales", "Tiền hàng trước giảm", "decimal", 25),
+                    $this->column("discount", "Giảm giá đã chốt", "decimal", 24),
+                    $this->column("net_sales", "Doanh thu hàng sau giảm", "decimal", 26),
+                    $this->column("shipping_charged", "Phí giao thu khách", "decimal", 24),
+                    $this->column("total_payment", "Tổng tiền đơn", "decimal", 24),
                     $this->column("cost_total", "Giá vốn", "decimal", 24),
                     $this->column(
                         "gross_profit",
@@ -173,7 +177,9 @@ final class ProfitReport implements ReportDefinition, RequiresReportPermissions
                 "Theo ngay",
                 [
                     $this->column("date", "Ngày", "date", 16),
-                    $this->column("net_sales", "Doanh thu hàng", "decimal", 24),
+                    $this->column("gross_sales", "Tiền hàng trước giảm", "decimal", 25),
+                    $this->column("discount", "Giảm giá đã chốt", "decimal", 24),
+                    $this->column("net_sales", "Doanh thu hàng sau giảm", "decimal", 26),
                     $this->column(
                         "shipping_charged",
                         "Phí giao thu khách",
@@ -194,6 +200,8 @@ final class ProfitReport implements ReportDefinition, RequiresReportPermissions
     private function summary(array $data): array
     {
         $labels = [
+            "gross_sales" => "Tiền hàng trước giảm",
+            "discount" => "Giảm giá đã chốt",
             "net_sales" => "Doanh thu hàng sau giảm",
             "shipping_charged" => "Phí giao hàng thu khách",
             "cost_total" => "Giá vốn hàng đã bán",

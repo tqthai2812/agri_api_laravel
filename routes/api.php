@@ -30,161 +30,207 @@ use App\Http\Controllers\Admin\V1\OrderPickingPlanController;
 use App\Http\Controllers\Client\V1\WishlistController;
 use App\Http\Controllers\Client\V1\LocationController;
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
+Route::middleware("auth:sanctum")->get("/user", function (Request $request) {
     $user = $request->user();
 
     return response()->json([
-        'user' => array_merge($user->toArray(), [
-            'roles' => $user->getRoleNames(),
-            'permissions' => $user->getAllPermissions()->pluck('name'),
+        "user" => array_merge($user->toArray(), [
+            "roles" => $user->getRoleNames(),
+            "permissions" => $user->getAllPermissions()->pluck("name"),
         ]),
     ]);
 });
 
-Route::prefix('v1')
-    ->middleware('auth:sanctum')
+Route::prefix("v1")
+    ->middleware("auth:sanctum")
     ->group(function () {
-        Route::apiResource('categories', CategoryController::class);
-        Route::apiResource('subcategories', SubcategoryController::class);
-        Route::apiResource('origins', OriginController::class);
-        Route::apiResource('products', ProductController::class);
+        Route::apiResource("categories", CategoryController::class);
+        Route::apiResource("subcategories", SubcategoryController::class);
+        Route::apiResource("origins", OriginController::class);
+        Route::apiResource("products", ProductController::class);
 
-        Route::apiResource('roles', RoleController::class);
-        Route::put('roles/{role}/permissions', [
+        Route::apiResource("roles", RoleController::class);
+        Route::put("roles/{role}/permissions", [
             RoleController::class,
-            'syncPermissions',
+            "syncPermissions",
         ]);
-        Route::get('permissions', [PermissionController::class, 'index']);
+        Route::get("permissions", [PermissionController::class, "index"]);
 
-        Route::put('users/{user}/roles', [UserRoleController::class, 'update']);
-        Route::apiResource('users', UserController::class)->only([
-            'index',
-            'store',
-            'show',
-            'update',
-            'destroy',
+        Route::put("users/{user}/roles", [UserRoleController::class, "update"]);
+        Route::apiResource("users", UserController::class)->only([
+            "index",
+            "store",
+            "show",
+            "update",
+            "destroy",
         ]);
 
-        Route::apiResource('discounts', DiscountController::class);
-        Route::apiResource('delivery-methods', DeliveryMethodController::class);
+        Route::apiResource("discounts", DiscountController::class);
+        Route::apiResource("delivery-methods", DeliveryMethodController::class);
 
         // Kho và lô
-        Route::get('inventory', [InventoryController::class, 'index']);
+        Route::get("inventory", [InventoryController::class, "index"]);
 
-        Route::get('inventory/{package}/lots', [
+        Route::get("inventory/{package}/lots", [
             InventoryController::class,
-            'lots',
-        ])->whereNumber('package');
+            "lots",
+        ])->whereNumber("package");
 
-        Route::post('inventory/{package}/initialize-lots', [
+        Route::post("inventory/{package}/initialize-lots", [
             InventoryController::class,
-            'initializeLots',
-        ])->whereNumber('package');
+            "initializeLots",
+        ])->whereNumber("package");
 
-        Route::patch('inventory/{package}/lots/{lot}', [
+        Route::patch("inventory/{package}/lots/{lot}", [
             InventoryController::class,
-            'updateLot',
-        ])->whereNumber(['package', 'lot']);
+            "updateLot",
+        ])->whereNumber(["package", "lot"]);
 
-        Route::get('inventory/{package}', [
+        Route::get("inventory/{package}", [
             InventoryController::class,
-            'show',
-        ])->whereNumber('package');
+            "show",
+        ])->whereNumber("package");
 
-        Route::get('inventory-transactions', [
+        Route::get("inventory-transactions", [
             InventoryController::class,
-            'transactions',
+            "transactions",
         ]);
 
-        Route::post('inventory-transactions', [
+        Route::post("inventory-transactions", [
             InventoryController::class,
-            'store',
+            "store",
         ]);
 
-        Route::put('inventory-transactions/{transaction}', [
+        Route::put("inventory-transactions/{transaction}", [
             InventoryController::class,
-            'update',
-        ])->whereNumber('transaction');
+            "update",
+        ])->whereNumber("transaction");
 
-        Route::get('orders/status-counts', [OrderController::class, 'statusCounts']);
-        Route::get('orders', [OrderController::class, 'index']);
-        Route::get('orders/{order}', [OrderController::class, 'show']);
-        Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus']);
-        Route::post('orders/{order}/picking-plan', [
+        Route::get("orders/status-counts", [
+            OrderController::class,
+            "statusCounts",
+        ]);
+        Route::get("orders", [OrderController::class, "index"]);
+        Route::get("orders/{order}", [OrderController::class, "show"]);
+        Route::patch("orders/{order}/status", [
+            OrderController::class,
+            "updateStatus",
+        ]);
+        Route::post("orders/{order}/picking-plan", [
             OrderPickingPlanController::class,
-            'store',
-        ])->whereNumber('order');
+            "store",
+        ])->whereNumber("order");
 
-        Route::get('cart', [CartController::class, 'show']);
-        Route::post('cart/items', [CartController::class, 'store']);
-        Route::put('cart/items/{item}', [CartController::class, 'update']);
-        Route::delete('cart/items/{item}', [CartController::class, 'destroy']);
-        Route::delete('cart', [CartController::class, 'clear']);
+        Route::get("cart", [CartController::class, "show"]);
+        Route::post("cart/items", [CartController::class, "store"]);
+        Route::put("cart/items/{item}", [CartController::class, "update"]);
+        Route::delete("cart/items/{item}", [CartController::class, "destroy"]);
+        Route::delete("cart", [CartController::class, "clear"]);
 
-        Route::get('wishlist', [WishlistController::class, 'index']);
-        Route::post('wishlist/items', [WishlistController::class, 'store']);
-        Route::post('wishlist/toggle', [WishlistController::class, 'toggle']);
-        Route::delete('wishlist/items', [WishlistController::class, 'destroyMany']);
-        Route::delete('wishlist/items/{wishlist}', [WishlistController::class, 'destroy']);
+        Route::get("wishlist", [WishlistController::class, "index"]);
+        Route::post("wishlist/items", [WishlistController::class, "store"]);
+        Route::post("wishlist/toggle", [WishlistController::class, "toggle"]);
+        Route::delete("wishlist/items", [
+            WishlistController::class,
+            "destroyMany",
+        ]);
+        Route::delete("wishlist/items/{wishlist}", [
+            WishlistController::class,
+            "destroy",
+        ]);
 
-        Route::get('profile', [ProfileController::class, 'show']);
-        Route::post('profile', [ProfileController::class, 'update']);
-        Route::put('profile/password', [ProfileController::class, 'changePassword']);
+        Route::get("profile", [ProfileController::class, "show"]);
+        Route::post("profile", [ProfileController::class, "update"]);
+        Route::put("profile/password", [
+            ProfileController::class,
+            "changePassword",
+        ]);
 
-        Route::get('my-orders/status-counts', [ClientOrderController::class, 'statusCounts']);
-        Route::get('my-orders', [ClientOrderController::class, 'index']);
-        Route::get('my-orders/{order}', [ClientOrderController::class, 'show']);
-        Route::patch('my-orders/{order}/cancel', [ClientOrderController::class, 'cancel']);
+        Route::get("my-orders/status-counts", [
+            ClientOrderController::class,
+            "statusCounts",
+        ]);
+        Route::get("my-orders", [ClientOrderController::class, "index"]);
+        Route::get("my-orders/{order}", [ClientOrderController::class, "show"]);
+        Route::patch("my-orders/{order}/cancel", [
+            ClientOrderController::class,
+            "cancel",
+        ]);
 
-        Route::get('shipping-addresses', [ShippingAddressController::class, 'index']);
-        Route::post('shipping-addresses', [ShippingAddressController::class, 'store']);
-        Route::put('shipping-addresses/{address}', [ShippingAddressController::class, 'update']);
-        Route::delete('shipping-addresses/{address}', [ShippingAddressController::class, 'destroy']);
-        Route::patch('shipping-addresses/{address}/default', [ShippingAddressController::class, 'setDefault']);
+        Route::get("shipping-addresses", [
+            ShippingAddressController::class,
+            "index",
+        ]);
+        Route::post("shipping-addresses", [
+            ShippingAddressController::class,
+            "store",
+        ]);
+        Route::put("shipping-addresses/{address}", [
+            ShippingAddressController::class,
+            "update",
+        ]);
+        Route::delete("shipping-addresses/{address}", [
+            ShippingAddressController::class,
+            "destroy",
+        ]);
+        Route::patch("shipping-addresses/{address}/default", [
+            ShippingAddressController::class,
+            "setDefault",
+        ]);
 
-        Route::get('checkout/options', [CheckoutController::class, 'options']);
-        Route::post('checkout/preview', [CheckoutController::class, 'preview']);
-        Route::post('checkout', [CheckoutController::class, 'checkout']);
+        Route::get("checkout/options", [CheckoutController::class, "options"]);
+        Route::post("checkout/preview", [CheckoutController::class, "preview"]);
+        Route::post("checkout", [CheckoutController::class, "checkout"]);
 
-        Route::get('news/status-counts', [NewsController::class, 'statusCounts']);
-        Route::apiResource('news', NewsController::class)->except(['update']);
-        Route::post('news/{news}', [NewsController::class, 'update']);
+        Route::get("news/status-counts", [
+            NewsController::class,
+            "statusCounts",
+        ]);
+        Route::apiResource("news", NewsController::class)->except(["update"]);
+        Route::post("news/{news}", [NewsController::class, "update"]);
 
-        Route::get(
-            'locations/provinces',
-            [LocationController::class, 'provinces']
-        );
+        Route::get("locations/provinces", [
+            LocationController::class,
+            "provinces",
+        ]);
 
-        Route::get(
-            'locations/provinces/{province}/wards',
-            [LocationController::class, 'wards']
-        )->whereNumber('province');
+        Route::get("locations/provinces/{province}/wards", [
+            LocationController::class,
+            "wards",
+        ])->whereNumber("province");
 
-        Route::get(
-            'locations/shipping-regions',
-            [LocationController::class, 'shippingRegions']
-        );
+        Route::get("locations/shipping-regions", [
+            LocationController::class,
+            "shippingRegions",
+        ]);
 
-        Route::get('inventory/{package}/lots/{lot}/adjustment', [
+        Route::get("inventory/{package}/lots/{lot}/adjustment", [
             InventoryController::class,
-            'adjustmentContext',
-        ])->whereNumber(['package', 'lot']);
+            "adjustmentContext",
+        ])->whereNumber(["package", "lot"]);
 
-        Route::get('inventory-adjustments/{eventKey}', [
+        Route::get("inventory-adjustments/{eventKey}", [
             InventoryController::class,
-            'adjustmentEvent',
+            "adjustmentEvent",
         ]);
     });
 
-Route::prefix('v1/public')->group(function () {
-    Route::get('categories', [PublicCategoryController::class, 'index']);
-    Route::get('product-filters', [PublicProductFilterController::class, 'index']);
+Route::prefix("v1/public")->group(function () {
+    Route::get("categories", [PublicCategoryController::class, "index"]);
+    Route::get("product-filters", [
+        PublicProductFilterController::class,
+        "index",
+    ]);
 
-    Route::get('products', [PublicProductController::class, 'index']);
-    Route::get('products/{product}', [PublicProductController::class, 'show']);
+    Route::get("products", [PublicProductController::class, "index"]);
+    Route::get("products/{product}", [PublicProductController::class, "show"]);
 
-    Route::get('news', [PublicNewsController::class, 'index']);
-    Route::get('news/{slug}', [PublicNewsController::class, 'show']);
+    Route::get("news", [PublicNewsController::class, "index"]);
+    Route::get("news/{slug}", [PublicNewsController::class, "show"]);
 });
 
-require __DIR__ . '/auth.php';
+require __DIR__ . "/auth.php";
+
+require __DIR__ . "/vouchers.php";
+
+require __DIR__ . "/news-studio.php";

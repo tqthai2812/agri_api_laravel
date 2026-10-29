@@ -143,12 +143,15 @@ class OrderPrintService
         if ($type === 'picking') {
             [$items, $stockState, $stockIssues, $planInfo] = $this->lots($order, $items);
             $issues = array_merge($issues, $stockIssues);
-            if ($stockState === 'allocated') {
+            if (in_array($stockState, ['reserved', 'allocated'], true)) {
                 $notes[] = 'Lô và số lượng đã được giữ cho đơn này. Tồn vật lý chỉ giảm khi chuyển Đang giao.';
             }
-            $planInfo['can_prepare_picking'] = $order->order_status === 'confirmed'
+            $planInfo['has_lot_reservations'] = DB::table('stock_reservation_lots as rl')
+                ->join('stock_reservations as r', 'r.id', '=', 'rl.stock_reservation_id')
+                ->whereIn('r.order_item_id', $order->items->pluck('id'))->where('r.status', 'active')->exists();
+            $planInfo['can_prepare_picking'] = in_array($order->order_status, ['pending', 'confirmed'], true)
                 && in_array($paymentState, ['paid', 'cod_collect'], true)
-                && ($stockState === 'not_allocated' || !empty($planInfo['has_picking_plan']));
+                && (in_array($stockState, ['reserved', 'not_allocated'], true) || !empty($planInfo['has_picking_plan']));
         }
 
         return [
@@ -192,7 +195,10 @@ class OrderPrintService
         $documents = DB::table('inventory_documents')->where('order_id', $order->id)
             ->where('document_type', 'sale_issue')->orderBy('id')->get();
         $document = $documents->first();
-        $planned = $order->order_status === 'confirmed' && $documents->count() === 1 && $document->status === 'draft';
+        if ($order->order_status === 'pending' && $documents->isEmpty()) {
+            return $this->pendingLots($items);
+        }
+        $planned = in_array($order->order_status, ['pending', 'confirmed'], true) && $documents->count() === 1 && $document->status === 'draft';
         $issued = in_array($order->order_status, ['shipping', 'completed'], true)
             && $documents->count() === 1 && $document->status === 'posted';
         $rows = DB::table('inventory_issue_allocations as a')
@@ -222,7 +228,7 @@ class OrderPrintService
                 'l.quantity_on_hand',
             ])->orderBy('a.id')->get();
         $issues = [];
-        $notPlanned = $order->order_status === 'confirmed' && $documents->isEmpty() && $rows->isEmpty();
+        $notPlanned = in_array($order->order_status, ['pending', 'confirmed'], true) && $documents->isEmpty() && $rows->isEmpty();
         if ($notPlanned) $issues[] = 'Đơn chưa chốt lô soạn hàng. Bấm Chốt lô soạn hàng trước khi in.';
         elseif (!$planned && !$issued) $issues[] = 'Trạng thái phiếu xuất chưa khớp trạng thái đơn. Cần đối chiếu kho.';
         if ($document && $document->event_key !== 'sale-issue:order:' . $order->id) {
@@ -231,7 +237,8 @@ class OrderPrintService
         $held = [];
         if ($planned) {
             try {
-                $held = \App\Support\PickingLotHolds::quantities(array_column($items, 'package_id'));
+                $state = \App\Support\InventoryLotReservations::snapshot(array_column($items, 'package_id'), true);
+                $held = array_map(fn($lot) => $lot['reserved_quantity'], $state['lots']);
             } catch (ValidationException $exception) {
                 foreach ($exception->errors() as $messages) $issues = array_merge($issues, $messages);
             }
@@ -317,6 +324,51 @@ class OrderPrintService
             'has_picking_plan' => $planned,
         ];
         return [array_values($byItem), $state, $issues, $info];
+    }
+
+    /** Đơn mới hiển thị lô đã giữ; vẫn chưa được in trước khi xác nhận. */
+    private function pendingLots(array $items): array
+    {
+        $issues = [];
+        try {
+            \App\Support\InventoryLotReservations::snapshot(array_column($items, 'package_id'), true);
+        } catch (ValidationException $e) {
+            foreach ($e->errors() as $messages) $issues = array_merge($issues, $messages);
+        }
+        $rows = DB::table('stock_reservation_lots as rl')
+            ->join('stock_reservations as r', 'r.id', '=', 'rl.stock_reservation_id')
+            ->leftJoin('inventory_lots as l', 'l.id', '=', 'rl.lot_id')
+            ->whereIn('r.order_item_id', array_column($items, 'id'))->where('r.status', 'active')
+            ->orderBy('rl.id')->get([
+                'rl.id',
+                'rl.lot_id',
+                'rl.quantity',
+                'r.order_item_id',
+                'l.lot_code',
+                'l.expires_on',
+                'l.status'
+            ]);
+        foreach ($items as &$item) {
+            $item['lots'] = [];
+            foreach ($rows->where('order_item_id', $item['id']) as $row) {
+                $item['lots'][] = [
+                    'lot_id' => (int) $row->lot_id,
+                    'lot_code' => $row->lot_code,
+                    'quantity' => (int) $row->quantity,
+                    'expires_on' => $row->expires_on,
+                    'document_number' => null
+                ];
+                if ($row->status !== 'available' || ($row->expires_on !== null && $row->expires_on < now()->toDateString())) {
+                    $issues[] = 'Lô đã giữ hết hạn, bị khóa hoặc cách ly. Cần chọn lại lô trước khi xác nhận.';
+                }
+            }
+            $item['allocated_quantity'] = array_sum(array_column($item['lots'], 'quantity'));
+        }
+        unset($item);
+        return [$items, $rows->isEmpty() ? 'not_allocated' : 'reserved', $issues, [
+            'has_picking_plan' => false,
+            'picking_plan_reference' => null,
+        ]];
     }
 
     private function cents(mixed $value): ?int

@@ -105,6 +105,11 @@ final class FinanceOrderMeasure
             "completed_at" => $o->completed_at?->toIso8601String(),
             "payment_method" => $o->payment_method,
             "payment_state" => $paymentState,
+            // Revenue and discount come from the order snapshots, never today's voucher.
+            "gross_sales" => $consistent
+                ? FinanceMoney::decimal(FinanceMoney::add($net, $discount))
+                : null,
+            "total_payment" => $header ? FinanceMoney::decimal($total) : null,
             "net_sales" => $net === null ? null : FinanceMoney::decimal($net),
             "shipping_charged" => $header ? FinanceMoney::decimal($ship) : null,
             "discount" => $header ? FinanceMoney::decimal($discount) : null,

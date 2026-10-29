@@ -48,23 +48,12 @@ final class PickingLotHolds
 
     public static function assertCanReduce(object $lot, int $after): void
     {
-        $held = self::quantities([(int) $lot->package_id])[(int) $lot->id] ?? 0;
-        if ($after < $held) {
-            self::fail("Lô {$lot->lot_code} đang giữ {$held} cho phiếu soạn. Không thể giảm tồn lô xuống {$after}. Hãy xử lý các phiếu soạn liên quan trước.");
-        }
+        InventoryLotReservations::assertCanReduce($lot, $after);
     }
 
     public static function assertCanEdit(object $lot, array $changes): void
     {
-        $held = self::quantities([(int) $lot->package_id])[(int) $lot->id] ?? 0;
-        if ($held === 0) return;
-        foreach (['lot_code', 'status', 'manufactured_on', 'expires_on'] as $field) {
-            $before = $lot->{$field};
-            if ($before instanceof \DateTimeInterface) $before = $before->format('Y-m-d');
-            if (array_key_exists($field, $changes) && (string) ($changes[$field] ?? '') !== (string) ($before ?? '')) {
-                self::fail("Lô {$lot->lot_code} đang giữ {$held} cho phiếu soạn. Chưa được đổi mã, trạng thái hoặc ngày lô; hãy xử lý phân bổ của các đơn liên quan trước.");
-            }
-        }
+        InventoryLotReservations::assertCanEdit($lot, $changes);
     }
 
     private static function fail(string $message): never

@@ -6,7 +6,9 @@ use App\Models\InventoryDocument;
 use App\Models\InventoryDocumentItem;
 use App\Models\InventoryIssueAllocation;
 use App\Models\Order;
-use App\Support\PickingLotHolds;
+use App\Support\InventoryLotReservations;
+use App\Models\StockReservation;
+use App\Models\StockReservationLot;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -33,32 +35,15 @@ final class OrderPickingPlan
             }
             $this->assertNoJournal($document);
             if (!$reallocate) {
+                app(OrderLotReservationService::class)->assign($items, $lots);
                 $this->lockForIssue($order, $items, $lots);
                 return $document;
             }
         }
 
-        // Giữ hàng cấp SKU đã bao gồm đơn này; ở đây chỉ chia phần giữ sang từng lô.
-        $otherHolds = PickingLotHolds::quantities($items->pluck('package_id')->unique()->all(), $document?->id);
-        $available = [];
-        foreach ($lots as $lot) {
-            $held = (int) ($otherHolds[$lot->id] ?? 0);
-            if ($held > (int) $lot->quantity_on_hand) $this->fail('Lượng lô đã giữ vượt tồn vật lý. Cần kiểm tra phiếu soạn.');
-            $available[$lot->id] = self::eligible($lot) ? (int) $lot->quantity_on_hand - $held : 0;
-        }
-        $plan = [];
-        foreach ($items as $item) {
-            $remaining = (int) $item->quantity;
-            foreach ($lots->where('package_id', $item->package_id) as $lot) {
-                $take = min($remaining, $available[$lot->id]);
-                if ($take <= 0) continue;
-                $plan[$item->id][] = ['lot_id' => (int) $lot->id, 'quantity' => $take];
-                $available[$lot->id] -= $take;
-                $remaining -= $take;
-                if ($remaining === 0) break;
-            }
-            if ($remaining !== 0) $this->fail('Không đủ lô hợp lệ chưa được giữ cho đơn khác. Chưa thay đổi phiếu soạn hoặc tồn kho.');
-        }
+        // Sao chép đúng lô đã giữ từ checkout. Chỉ nút Chọn lại lô mới
+        // phân bổ FEFO lại và cập nhật cả giữ lô lẫn phiếu trong cùng transaction.
+        $plan = app(OrderLotReservationService::class)->assign($items, $lots, $reallocate);
 
         if (!$document) {
             $document = InventoryDocument::create([
@@ -128,12 +113,11 @@ final class OrderPickingPlan
             ->orderBy('id')->lockForUpdate()->get();
         if ($lines->count() !== $items->count()) $this->fail('Số dòng phiếu soạn chưa khớp đơn. Chọn lại lô trước khi giao.');
         $lotsById = $lots->keyBy('id');
-        $held = PickingLotHolds::quantities($items->pluck('package_id')->unique()->all());
-        foreach ($held as $lotId => $quantity) {
-            if (!isset($lotsById[$lotId]) || $quantity > (int) $lotsById[$lotId]->quantity_on_hand) {
-                $this->fail('Tồn lô không đủ cho các phiếu soạn đang giữ. Cần đối chiếu kho.');
-            }
-        }
+        InventoryLotReservations::snapshot($items->pluck('package_id')->all(), true, true);
+        $parents = StockReservation::whereIn('order_item_id', $items->pluck('id'))
+            ->orderBy('id')->lockForUpdate()->get()->keyBy('order_item_id');
+        $children = StockReservationLot::whereIn('stock_reservation_id', $parents->pluck('id'))
+            ->orderBy('id')->lockForUpdate()->get();
         foreach ($items as $item) {
             $matches = $lines->where('order_item_id', $item->id);
             if ($matches->count() !== 1) $this->fail('Dòng đơn chưa liên kết đúng một dòng phiếu soạn.');
@@ -145,6 +129,20 @@ final class OrderPickingPlan
             if ((int) $parts->sum('quantity') !== (int) $item->quantity || $parts->isEmpty()) {
                 $this->fail('Phân bổ lô không khớp số lượng dòng đơn.');
             }
+            $parent = $parents->get($item->id);
+            if (
+                !$parent || $parent->status !== 'active'
+                || (int) $parent->package_id !== (int) $item->package_id
+                || (int) $parent->quantity !== (int) $item->quantity
+            ) {
+                $this->fail('Giữ hàng không khớp dòng phiếu xuất.');
+            }
+            $saved = $children->where('stock_reservation_id', $parent->id)
+                ->mapWithKeys(fn($r) => [(int) $r->lot_id => (int) $r->quantity])->all();
+            $planned = $parts->mapWithKeys(fn($a) => [(int) $a->lot_id => (int) $a->quantity])->all();
+            ksort($saved);
+            ksort($planned);
+            if (!$saved || $saved !== $planned) $this->fail('Phiếu soạn không khớp lô đã giữ. Không được xuất lô khác.');
             foreach ($parts as $part) {
                 $lot = $lotsById->get($part->lot_id);
                 if (

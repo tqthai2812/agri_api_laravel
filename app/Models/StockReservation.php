@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockReservation extends Model
 {
@@ -31,6 +32,11 @@ class StockReservation extends Model
             'consumed_at' => 'datetime',
             'released_at' => 'datetime',
         ];
+    }
+
+    public function reservationLots(): HasMany
+    {
+        return $this->hasMany(StockReservationLot::class, 'stock_reservation_id');
     }
 
     public function orderItem(): BelongsTo

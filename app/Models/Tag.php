@@ -11,18 +11,22 @@ class Tag extends Model
     /** @use HasFactory<\Database\Factories\TagFactory> */
     use HasFactory;
 
-    protected $table = 'tags';
+    protected $table = "tags";
 
-    protected $fillable = ['tag_name'];
+    protected $fillable = ["tag_name"];
 
     public function products(): BelongsToMany
     {
-        return $this->belongsToMany(Product::class, 'product_tag');
+        return $this->belongsToMany(Product::class, "product_tag");
     }
 
     public function news(): BelongsToMany
     {
-        return $this->belongsToMany(News::class, 'news_tags', 'tag_id', 'news_id')
-            ->withTimestamps();
+        return $this->belongsToMany(
+            News::class,
+            "news_tags",
+            "tag_id",
+            "news_id",
+        )->withTimestamps();
     }
 }

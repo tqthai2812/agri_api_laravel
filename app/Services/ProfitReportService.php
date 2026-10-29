@@ -52,6 +52,7 @@ class ProfitReportService implements ProfitReportServiceInterface
             }
         };
         $s = [
+            "gross_sales" => 0,
             "net_sales" => 0,
             "shipping_charged" => 0,
             "discount" => 0,
@@ -59,6 +60,7 @@ class ProfitReportService implements ProfitReportServiceInterface
             "expenses" => 0,
         ];
         $complete = [
+            "gross_sales" => true,
             "net_sales" => true,
             "shipping_charged" => true,
             "discount" => true,
@@ -74,6 +76,8 @@ class ProfitReportService implements ProfitReportServiceInterface
         foreach ($p->days() as $day) {
             $days[$day] = [
                 "date" => $day,
+                "gross_sales" => 0,
+                "discount" => 0,
                 "net_sales" => 0,
                 "shipping_charged" => 0,
                 "cost_total" => 0,
@@ -89,7 +93,7 @@ class ProfitReportService implements ProfitReportServiceInterface
                 ->timezone(DashboardPeriod::TIMEZONE)
                 ->toDateString();
             foreach (
-                ["net_sales", "shipping_charged", "discount", "cost_total"]
+                ["gross_sales", "net_sales", "shipping_charged", "discount", "cost_total"]
                 as $key
             ) {
                 if ($row[$key] === null) {
@@ -98,12 +102,10 @@ class ProfitReportService implements ProfitReportServiceInterface
                 } else {
                     $n = FinanceMoney::cents($row[$key]);
                     $s[$key] = FinanceMoney::add($s[$key], $n);
-                    if ($key !== "discount") {
-                        $days[$day][$key] = FinanceMoney::add(
-                            $days[$day][$key],
-                            $n,
-                        );
-                    }
+                    $days[$day][$key] = FinanceMoney::add(
+                        $days[$day][$key],
+                        $n,
+                    );
                 }
             }
             if ($row["profit_complete"]) {
@@ -232,7 +234,7 @@ class ProfitReportService implements ProfitReportServiceInterface
                 )
                 : null;
             foreach (
-                ["net_sales", "shipping_charged", "cost_total", "expenses"]
+                ["gross_sales", "discount", "net_sales", "shipping_charged", "cost_total", "expenses"]
                 as $key
             ) {
                 $d[$key] = $d["complete"]

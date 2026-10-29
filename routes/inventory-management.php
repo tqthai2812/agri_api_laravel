@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\V1\InventoryDocumentController;
+use App\Http\Controllers\Admin\V1\InventoryController;
 use App\Http\Controllers\Admin\V1\SupplierController;
 use Illuminate\Support\Facades\Route;
 
@@ -8,6 +9,9 @@ Route::prefix('api/v1')
     ->middleware(['api', 'auth:sanctum'])
     ->group(function () {
         Route::apiResource('suppliers', SupplierController::class);
+
+        Route::get('inventory/{package}/reservations', [InventoryController::class, 'reservations'])
+            ->whereNumber('package');
 
         Route::get('inventory-documents', [
             InventoryDocumentController::class,

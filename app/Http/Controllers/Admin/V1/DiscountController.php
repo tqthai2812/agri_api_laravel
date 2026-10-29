@@ -37,6 +37,7 @@ class DiscountController extends Controller implements HasMiddleware
             'is_active',
             'user_id',
             'status',
+            'discount_scope',
         ]);
 
         $perPage = (int) $request->input('per_page', 15);

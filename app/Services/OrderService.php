@@ -9,6 +9,7 @@ use App\Models\InventoryDocument;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Support\OrderMoney;
+use App\Support\OrderDiscountUsage;
 use App\Support\OrderPaymentState;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -107,6 +108,8 @@ class OrderService implements OrderServiceInterface
         return DB::transaction(function () use ($orderId, $status, $note, $actorId, $ownerId) {
             $order = Order::when($ownerId !== null, fn($q) => $q->where('user_id', $ownerId))
                 ->lockForUpdate()->findOrFail($orderId);
+            // Request lặp cùng trạng thái không xuất kho, ghi lịch sử hoặc hoàn lượt thêm.
+            if ($order->order_status === $status) return $this->orderRepository->findById($order->id);
             $payments = $order->payments()->orderBy('id')->lockForUpdate()->get();
             $state = OrderPaymentState::of($order, $payments);
             if (!in_array($status, $state['allowed_next_statuses'], true)) {
@@ -115,6 +118,7 @@ class OrderService implements OrderServiceInterface
             }
             if ($status === 'cancelled') {
                 $this->stockService->release($order);
+                OrderDiscountUsage::releaseForCancellation($order);
                 $order->payments()->where('status', 'pending')->update([
                     'status' => 'failed',
                     'failed_reason' => 'Đơn hàng đã hủy.',

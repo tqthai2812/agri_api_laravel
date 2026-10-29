@@ -417,7 +417,38 @@ final class SkuProfitReportService
                 "d.status as document_status",
             ])
             ->groupBy("order_item_id");
+        // One separate bounded query: joining reservations into sales would duplicate money.
+        // Keep released/active histories visible for reconciliation; only consumed histories match.
+        $reservations = DB::table("stock_reservation_lots as rl")
+            ->join("stock_reservations as r", "r.id", "=", "rl.stock_reservation_id")
+            ->whereIn("r.order_item_id", array_column($rows, "id"))
+            ->orderBy("rl.id")
+            ->get([
+                "rl.lot_id",
+                "rl.quantity",
+                "rl.discounted_quantity",
+                "r.order_item_id",
+                "r.package_id",
+                "r.quantity as parent_quantity",
+                "r.status as reservation_status",
+            ])->groupBy("order_item_id");
         foreach ($rows as &$row) {
+            $held = $reservations->get($row["id"], collect());
+            $heldMap = [];
+            $heldValid = true;
+            foreach ($held as $h) {
+                $lotId = (int) $h->lot_id;
+                $heldValid = $heldValid && !isset($heldMap[$lotId])
+                    && $h->reservation_status === "consumed"
+                    && (int) $h->package_id === $row["package_id"]
+                    && (int) $h->parent_quantity === $row["quantity"]
+                    && (int) $h->quantity > 0
+                    && (int) $h->discounted_quantity >= 0
+                    && (int) $h->discounted_quantity <= (int) $h->quantity;
+                $heldMap[$lotId] = (int) $h->quantity;
+            }
+            $issuedMap = [];
+            $issueLinksValid = true;
             $row["allocations"] = [];
             $quantity = $cost = 0;
             $valid = true;
@@ -438,8 +469,22 @@ final class SkuProfitReportService
                     (int) $a->document_order_id === $row["order_id"] &&
                     $a->document_type === "sale_issue" &&
                     $a->document_status === "posted";
+                $issueLinksValid = $issueLinksValid
+                    && (int) $a->quantity > 0
+                    && (int) $a->lot_package_id === $row["package_id"]
+                    && (int) $a->item_package_id === $row["package_id"]
+                    && (int) $a->document_order_item_id === $row["id"]
+                    && (int) $a->document_order_id === $row["order_id"]
+                    && $a->document_type === "sale_issue"
+                    && $a->document_status === "posted";
+                $issuedMap[(int) $a->lot_id] = ($issuedMap[(int) $a->lot_id] ?? 0) + (int) $a->quantity;
+                $hold = $held->firstWhere("lot_id", $a->lot_id);
                 $row["allocations"][] = [
                     "id" => (int) $a->id,
+                    "lot_id" => (int) $a->lot_id,
+                    "reserved_quantity" => $hold ? (int) $hold->quantity : null,
+                    "discounted_quantity" => $hold ? (int) $hold->discounted_quantity : null,
+                    "reservation_status" => $hold?->reservation_status,
                     "lot_code" => $a->lot_code,
                     "document_number" => $a->document_number,
                     "quantity" => (int) $a->quantity,
@@ -447,6 +492,15 @@ final class SkuProfitReportService
                     "cost_amount" => $a->cost_amount,
                 ];
             }
+            ksort($heldMap);
+            ksort($issuedMap);
+            $row["reservation_check"] = $held->isEmpty()
+                ? "Không có lịch sử giữ lô; chỉ đối chiếu phiếu xuất"
+                : ($heldValid && $issueLinksValid
+                    && array_sum($heldMap) === $row["quantity"] && $heldMap === $issuedMap
+                    ? "Khớp lô đã giữ và lô đã xuất"
+                    : "Giữ lô và phiếu xuất cần đối chiếu");
+            // Reservation evidence never recalculates or overwrites the recorded sales/COGS.
             $row["allocation_status"] = !$row["allocations"]
                 ? "Không có phân bổ lô để đối chiếu"
                 : ($row["cost_total"] === null

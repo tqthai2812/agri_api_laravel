@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Contracts\Repositories\InventoryReportRepositoryInterface;
 use App\Support\ProductStockQuery;
+use App\Support\InventoryLotReservations;
 use App\Models\ProductPackage;
 use Illuminate\Support\Collection;
 use Illuminate\Database\Query\Builder;
@@ -133,6 +134,7 @@ class InventoryReportRepository implements InventoryReportRepositoryInterface
                 $reservations,
                 $transactions->groupBy("package_id"),
                 $movements,
+                $history ? null : InventoryLotReservations::snapshot($ids),
             ];
         }
     }

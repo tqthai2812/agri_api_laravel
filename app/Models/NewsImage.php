@@ -10,15 +10,12 @@ class NewsImage extends Model
 {
     use HasFactory;
 
-    protected $table = 'news_images';
+    protected $table = "news_images";
 
-    protected $fillable = [
-        'news_id',
-        'image_url',
-    ];
+    protected $fillable = ["news_id", "image_url"];
 
     public function news(): BelongsTo
     {
-        return $this->belongsTo(News::class, 'news_id');
+        return $this->belongsTo(News::class, "news_id");
     }
 }

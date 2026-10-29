@@ -31,6 +31,8 @@ interface InventoryServiceInterface
         int $performedBy
     ): InventoryTransaction;
 
+    public function listReservations(int $packageId, array $filters = [], int $perPage = 20): LengthAwarePaginator;
+
     public function listLots(
         int $packageId,
         int $perPage = 20

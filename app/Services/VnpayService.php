@@ -7,6 +7,8 @@ use App\Models\Order;
 use App\Models\OrderHistory;
 use App\Models\Payment;
 use App\Support\OrderMoney;
+use App\Support\OrderDiscountUsage;
+use App\Models\StockReservation;
 use App\Support\OrderPaymentState;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -108,6 +110,7 @@ class VnpayService
             if (!OrderPaymentState::of($order, $payments)['can_pay']) {
                 $this->fail('Đơn không còn đủ điều kiện thanh toán. Vui lòng tải lại.');
             }
+            $this->stock->assertReserved($order);
             $pending = $payments->where('payment_method', 'VNPAY')->where('status', 'pending');
             if ($pending->count() > 1) $this->fail('Đơn có nhiều giao dịch chưa rõ kết quả. Cần đối chiếu.');
             if ($pending->isNotEmpty()) {
@@ -214,6 +217,10 @@ class VnpayService
                     'paid_at' => $paidAt,
                     'failed_reason' => null,
                 ])->save();
+                if (!$late) {
+                    StockReservation::whereIn('order_item_id', $order->items()->select('id'))
+                        ->where('status', 'active')->update(['expires_at' => null, 'updated_at' => now()]);
+                }
                 if ($late) $this->review($order, 'Có khoản thanh toán đến sau khi giao dịch đã kết thúc hoặc đã thu tiền.');
                 $this->history($order, 'VNPAY xác nhận đã thanh toán. Mã giao dịch ' . $transaction . '.');
                 // Không chuyển trạng thái đơn, không tạo phiếu xuất kho.
@@ -347,9 +354,10 @@ class VnpayService
             $payments = $order->payments()->orderBy('id')->lockForUpdate()->get();
             if (!OrderPaymentState::of($order, $payments)['can_cancel']) return;
             $this->stock->release($order);
+            OrderDiscountUsage::releaseForCancellation($order);
             $order->update(['order_status' => 'cancelled']);
             $last = $payments->where('payment_method', 'VNPAY')->sortByDesc('id')->first();
-            $last->forceFill(['status' => 'expired', 'failed_reason' => 'Hết thời hạn thanh toán của đơn.'])->save();
+            if ($last) $last->forceFill(['status' => 'expired', 'failed_reason' => 'Hết thời hạn thanh toán của đơn.'])->save();
             $this->history($order, 'Hệ thống hủy đơn hết hạn sau khi xác định thanh toán không thành công.');
         }, 3);
     }

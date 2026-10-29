@@ -14,11 +14,13 @@ use Illuminate\Support\Str;
 class NewsService implements NewsServiceInterface
 {
     public function __construct(
-        protected NewsRepositoryInterface $newsRepository
+        protected NewsRepositoryInterface $newsRepository,
     ) {}
 
-    public function getAll(array $filters = [], int $perPage = 15): LengthAwarePaginator
-    {
+    public function getAll(
+        array $filters = [],
+        int $perPage = 15,
+    ): LengthAwarePaginator {
         return $this->newsRepository->getAll($filters, $perPage);
     }
 
@@ -27,17 +29,31 @@ class NewsService implements NewsServiceInterface
         return $this->newsRepository->findById($id);
     }
 
-    public function create(array $data, int $userId, mixed $titleImage = null, array $imageFiles = []): News
-    {
-        return DB::transaction(function () use ($data, $userId, $titleImage, $imageFiles) {
-            $tagNames = $data['tag_names'] ?? [];
+    public function create(
+        array $data,
+        int $userId,
+        mixed $titleImage = null,
+        array $imageFiles = [],
+    ): News {
+        return DB::transaction(function () use (
+            $data,
+            $userId,
+            $titleImage,
+            $imageFiles,
+        ) {
+            $tagNames = $data["tag_names"] ?? [];
 
             $payload = $this->preparePayload($data);
-            $payload['user_id'] = $userId;
-            $payload['slug'] = $this->makeUniqueSlug($payload['slug'] ?? $payload['title']);
+            $payload["user_id"] = $userId;
+            $payload["slug"] = $this->makeUniqueSlug(
+                $payload["slug"] ?? $payload["title"],
+            );
 
             if ($titleImage) {
-                $payload['title_image_url'] = $titleImage->store('news', 'public');
+                $payload["title_image_url"] = $titleImage->store(
+                    "news",
+                    "public",
+                );
             }
 
             $news = $this->newsRepository->create($payload);
@@ -52,30 +68,46 @@ class NewsService implements NewsServiceInterface
         });
     }
 
-    public function update(News $news, array $data, mixed $titleImage = null, array $imageFiles = []): News
-    {
-        return DB::transaction(function () use ($news, $data, $titleImage, $imageFiles) {
-            $tagNames = $data['tag_names'] ?? null;
-            $deletedImageIds = $data['deleted_image_ids'] ?? [];
+    public function update(
+        News $news,
+        array $data,
+        mixed $titleImage = null,
+        array $imageFiles = [],
+    ): News {
+        return DB::transaction(function () use (
+            $news,
+            $data,
+            $titleImage,
+            $imageFiles,
+        ) {
+            $tagNames = $data["tag_names"] ?? null;
+            $deletedImageIds = $data["deleted_image_ids"] ?? [];
 
             $payload = $this->preparePayload($data, false);
 
-            if (isset($payload['title']) || isset($payload['slug'])) {
-                $slugSource = $payload['slug'] ?? $payload['title'] ?? $news->title;
-                $payload['slug'] = $this->makeUniqueSlug($slugSource, $news->id);
+            if (isset($payload["title"]) || isset($payload["slug"])) {
+                $slugSource =
+                    $payload["slug"] ?? ($payload["title"] ?? $news->title);
+                $payload["slug"] = $this->makeUniqueSlug(
+                    $slugSource,
+                    $news->id,
+                );
             }
 
             if ($titleImage) {
                 if ($news->title_image_url) {
-                    Storage::disk('public')->delete($news->title_image_url);
+                    Storage::disk("public")->delete($news->title_image_url);
                 }
 
-                $payload['title_image_url'] = $titleImage->store('news', 'public');
+                $payload["title_image_url"] = $titleImage->store(
+                    "news",
+                    "public",
+                );
             }
 
-            if (!empty($data['remove_title_image']) && $news->title_image_url) {
-                Storage::disk('public')->delete($news->title_image_url);
-                $payload['title_image_url'] = null;
+            if (!empty($data["remove_title_image"]) && $news->title_image_url) {
+                Storage::disk("public")->delete($news->title_image_url);
+                $payload["title_image_url"] = null;
             }
 
             $this->newsRepository->update($news, $payload);
@@ -86,10 +118,13 @@ class NewsService implements NewsServiceInterface
             }
 
             if (!empty($deletedImageIds)) {
-                $deletedPaths = $this->newsRepository->deleteImages($news, $deletedImageIds);
+                $deletedPaths = $this->newsRepository->deleteImages(
+                    $news,
+                    $deletedImageIds,
+                );
 
                 foreach ($deletedPaths as $path) {
-                    Storage::disk('public')->delete($path);
+                    Storage::disk("public")->delete($path);
                 }
             }
 
@@ -104,12 +139,12 @@ class NewsService implements NewsServiceInterface
     {
         return DB::transaction(function () use ($news) {
             if ($news->title_image_url) {
-                Storage::disk('public')->delete($news->title_image_url);
+                Storage::disk("public")->delete($news->title_image_url);
             }
 
             foreach ($news->images as $image) {
                 if ($image->image_url) {
-                    Storage::disk('public')->delete($image->image_url);
+                    Storage::disk("public")->delete($image->image_url);
                 }
             }
 
@@ -127,43 +162,58 @@ class NewsService implements NewsServiceInterface
     private function preparePayload(array $data, bool $creating = true): array
     {
         unset(
-            $data['title_image'],
-            $data['images'],
-            $data['tag_names'],
-            $data['tags'],
-            $data['deleted_image_ids'],
-            $data['remove_title_image']
+            $data["title_image"],
+            $data["images"],
+            $data["tag_names"],
+            $data["tags"],
+            $data["deleted_image_ids"],
+            $data["remove_title_image"],
         );
 
-        if (array_key_exists('is_draft', $data)) {
-            $data['is_draft'] = filter_var($data['is_draft'], FILTER_VALIDATE_BOOLEAN);
+        if (array_key_exists("is_draft", $data)) {
+            $data["is_draft"] = filter_var(
+                $data["is_draft"],
+                FILTER_VALIDATE_BOOLEAN,
+            );
         }
 
-        if (array_key_exists('is_published', $data)) {
-            $data['is_published'] = filter_var($data['is_published'], FILTER_VALIDATE_BOOLEAN);
+        if (array_key_exists("is_published", $data)) {
+            $data["is_published"] = filter_var(
+                $data["is_published"],
+                FILTER_VALIDATE_BOOLEAN,
+            );
         }
 
-        $isDraft = $data['is_draft'] ?? ($creating ? true : null);
-        $isPublished = $data['is_published'] ?? ($creating ? false : null);
+        $isDraft = $data["is_draft"] ?? ($creating ? true : null);
+        $isPublished = $data["is_published"] ?? ($creating ? false : null);
 
         if ($isDraft === true) {
-            $data['is_published'] = false;
-            $data['published_at'] = null;
+            $data["is_published"] = false;
+            $data["published_at"] = null;
         }
 
-        if ($isDraft === false && $isPublished === true && empty($data['published_at'])) {
-            $data['published_at'] = now();
+        if (
+            $isDraft === false &&
+            $isPublished === true &&
+            empty($data["published_at"])
+        ) {
+            $data["published_at"] = now();
         }
 
+        if (array_key_exists("content", $data)) {
+            $data["content"] = \App\Support\NewsHtml::clean($data["content"]);
+        }
         return $data;
     }
 
-    private function makeUniqueSlug(string $value, ?int $ignoreId = null): string
-    {
+    private function makeUniqueSlug(
+        string $value,
+        ?int $ignoreId = null,
+    ): string {
         $baseSlug = Str::slug($value);
 
         if (!$baseSlug) {
-            $baseSlug = 'bai-viet';
+            $baseSlug = "bai-viet";
         }
 
         $slug = $baseSlug;
@@ -171,11 +221,14 @@ class NewsService implements NewsServiceInterface
 
         while (
             News::query()
-            ->where('slug', $slug)
-            ->when($ignoreId, fn($query) => $query->where('id', '!=', $ignoreId))
-            ->exists()
+                ->where("slug", $slug)
+                ->when(
+                    $ignoreId,
+                    fn($query) => $query->where("id", "!=", $ignoreId),
+                )
+                ->exists()
         ) {
-            $slug = $baseSlug . '-' . $counter;
+            $slug = $baseSlug . "-" . $counter;
             $counter++;
         }
 
@@ -191,7 +244,7 @@ class NewsService implements NewsServiceInterface
             ->unique()
             ->map(function ($tagName) {
                 return Tag::firstOrCreate([
-                    'tag_name' => $tagName,
+                    "tag_name" => $tagName,
                 ])->id;
             })
             ->values()
@@ -202,7 +255,7 @@ class NewsService implements NewsServiceInterface
     {
         return collect($imageFiles)
             ->filter()
-            ->map(fn($image) => $image->store('news', 'public'))
+            ->map(fn($image) => $image->store("news", "public"))
             ->values()
             ->all();
     }

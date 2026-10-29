@@ -35,10 +35,11 @@ class OrderPickingPlanController extends Controller implements HasMiddleware
         $data = $request->validate(['reallocate' => ['sometimes', 'boolean']]);
         DB::transaction(function () use ($request, $order, $data) {
             $row = Order::query()->lockForUpdate()->findOrFail($order);
-            if ($row->order_status !== 'confirmed') $this->fail('Chỉ chốt hoặc chọn lại lô khi đơn đang ở trạng thái Đã xác nhận.');
+            if (!in_array($row->order_status, ['pending', 'confirmed'], true)) $this->fail('Chỉ chốt hoặc chọn lại lô khi đơn đang chờ xác nhận hoặc đã xác nhận.');
             $payments = $row->payments()->orderBy('id')->lockForUpdate()->get();
             $state = OrderPaymentState::of($row, $payments);
-            if (!in_array('shipping', $state['allowed_next_statuses'], true)) {
+            $next = $row->order_status === 'pending' ? 'confirmed' : 'shipping';
+            if (!in_array($next, $state['allowed_next_statuses'], true)) {
                 $this->fail('Thanh toán của đơn chưa đủ điều kiện giao. Cần kiểm tra trước khi chốt lô.');
             }
             $this->stock->prepare($row, (int) $request->user()->id, (bool) ($data['reallocate'] ?? false));

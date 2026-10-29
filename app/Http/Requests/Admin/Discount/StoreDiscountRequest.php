@@ -15,6 +15,9 @@ class StoreDiscountRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        if ($this->has('show_in_wallet')) {
+            $this->merge(['show_in_wallet' => filter_var($this->show_in_wallet, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)]);
+        }
         if ($this->has('is_active')) {
             $this->merge([
                 'is_active' => filter_var($this->is_active, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
@@ -31,6 +34,10 @@ class StoreDiscountRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'discount_scope' => ['sometimes', 'required', Rule::in(['order', 'lot'])],
+            'lot_id' => ['nullable', 'integer', Rule::exists('inventory_lots', 'id')],
+            'starts_at' => ['nullable', 'date'],
+            'show_in_wallet' => ['sometimes', 'required', 'boolean'],
             'user_id' => [
                 'nullable',
                 'integer',
@@ -53,12 +60,16 @@ class StoreDiscountRequest extends FormRequest
             'max_discount_amount' => [
                 'required',
                 'numeric',
+                'decimal:0,2',
+                'max:99999999.99',
                 'min:0',
             ],
 
             'min_order_value' => [
                 'required',
                 'numeric',
+                'decimal:0,2',
+                'max:99999999.99',
                 'min:0',
             ],
 
@@ -66,23 +77,17 @@ class StoreDiscountRequest extends FormRequest
                 'nullable',
                 'integer',
                 'min:1',
+                'max:2147483647',
             ],
 
-            'used_count' => [
-                'nullable',
-                'integer',
-                'min:0',
-            ],
+            'used_count' => ['prohibited'],
 
             'expire_date' => [
                 'required',
                 'date',
             ],
 
-            'is_active' => [
-                'nullable',
-                'boolean',
-            ],
+            'is_active' => ['sometimes', 'required', 'boolean'],
 
             'discount_code' => [
                 'required',

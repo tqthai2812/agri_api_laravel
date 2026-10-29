@@ -6,6 +6,8 @@ use App\Contracts\Repositories\InventoryRepositoryInterface;
 use App\Contracts\Services\InventoryServiceInterface;
 use App\Models\InventoryTransaction;
 use App\Models\ProductPackage;
+use App\Support\InventoryLotReservations;
+use App\Support\InventoryReservationReader;
 use Illuminate\Database\QueryException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -26,12 +28,17 @@ class InventoryService implements InventoryServiceInterface
         array $filters = [],
         int $perPage = 15
     ): LengthAwarePaginator {
-        return $this->inventoryRepository->getPackages($filters, $perPage);
+        $page = $this->inventoryRepository->getPackages($filters, $perPage);
+        $state = InventoryLotReservations::snapshot($page->getCollection()->pluck('id')->all());
+        foreach ($page->getCollection() as $package) $this->withReservationState($package, $state);
+        return $page;
     }
 
     public function getPackageDetail(int $packageId): ?ProductPackage
     {
-        return $this->inventoryRepository->findPackage($packageId);
+        $package = $this->inventoryRepository->findPackage($packageId);
+        if ($package) $this->withReservationState($package, InventoryLotReservations::snapshot([$packageId]));
+        return $package;
     }
 
     public function listTransactions(
@@ -45,13 +52,34 @@ class InventoryService implements InventoryServiceInterface
         int $packageId,
         int $perPage = 20
     ): LengthAwarePaginator {
-        return DB::table('inventory_lots')
+        $page = DB::table('inventory_lots')
             ->where('package_id', $packageId)
             ->orderByRaw('expires_on IS NULL')
             ->orderBy('expires_on')
             ->orderBy('received_at')
             ->orderBy('id')
             ->paginate(min(max($perPage, 1), 100));
+        $state = InventoryLotReservations::snapshot([$packageId]);
+        $page->setCollection($page->getCollection()->map(function ($lot) use ($state) {
+            foreach (InventoryLotReservations::describe($lot, $state) as $key => $value) $lot->{$key} = $value;
+            return $lot;
+        }));
+        return $page;
+    }
+
+    public function listReservations(int $packageId, array $filters = [], int $perPage = 20): LengthAwarePaginator
+    {
+        return InventoryReservationReader::paginate($packageId, $filters, $perPage);
+    }
+
+    private function withReservationState(ProductPackage $package, array $state): void
+    {
+        $info = $state['packages'][(int) $package->id];
+        foreach (['reserved_lot_quantity', 'reserved_new_quantity', 'reserved_legacy_quantity', 'legacy_unallocated_quantity'] as $key) {
+            $package->setAttribute($key, $info[$key]);
+        }
+        $package->setAttribute('reservation_consistent', !$info['issues']);
+        $package->setAttribute('reservation_issues', $info['issues']);
     }
 
     private function fail(string $field, string $message): never
@@ -652,6 +680,8 @@ class InventoryService implements InventoryServiceInterface
             if ($manufactured && $expires && $expires < $manufactured) {
                 $this->fail('expires_on', 'Hạn dùng không được trước ngày sản xuất.');
             }
+
+            InventoryLotReservations::assertCanEdit($lot, $data);
 
             $allowed = array_intersect_key($data, array_flip([
                 'lot_code',

@@ -14,6 +14,10 @@ class Discount extends Model
     protected $table = 'discounts';
 
     protected $fillable = [
+        'discount_scope',
+        'lot_id',
+        'starts_at',
+        'show_in_wallet',
         'user_id',
         'discount_code',
         'discount_description',
@@ -27,6 +31,9 @@ class Discount extends Model
     ];
 
     protected $casts = [
+        'lot_id' => 'integer',
+        'starts_at' => 'datetime',
+        'show_in_wallet' => 'boolean',
         'discount_percent' => 'integer',
         'max_discount_amount' => 'decimal:2',
         'min_order_value' => 'decimal:2',
@@ -35,6 +42,11 @@ class Discount extends Model
         'expire_date' => 'date',
         'is_active' => 'boolean',
     ];
+
+    public function lot(): BelongsTo
+    {
+        return $this->belongsTo(InventoryLot::class, 'lot_id');
+    }
 
     public function user(): BelongsTo
     {

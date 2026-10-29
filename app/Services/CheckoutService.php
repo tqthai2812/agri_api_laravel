@@ -22,6 +22,7 @@ use App\Models\User;
 use App\Support\OrderMoney;
 use App\Support\OrderRelations;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class CheckoutService implements CheckoutServiceInterface
@@ -30,7 +31,8 @@ class CheckoutService implements CheckoutServiceInterface
         protected CartRepositoryInterface $cartRepository,
         protected OrderStockServiceInterface $stockService,
         protected LocationServiceInterface $locationService,
-        protected VnpayService $vnpay
+        protected VnpayService $vnpay,
+        protected CheckoutLotDiscountService $lotDiscount
     ) {}
     public function options(User $user): array
     {
@@ -118,23 +120,24 @@ class CheckoutService implements CheckoutServiceInterface
                 ...$summary['address'],
             ]);
             $allocated = 0;
-            $cumulativeGross = 0;
+            $cumulativeBase = 0;
+            $discountedQuantities = [];
             foreach ($summary['items'] as $item) {
                 $package = $item->package;
                 $gross = OrderMoney::multiply(
                     OrderMoney::cents($package->price),
                     (int) $item->quantity
                 );
-                $cumulativeGross += $gross;
+                $cumulativeBase += $summary['discount_bases'][(int) $item->id];
                 // Phân bổ theo tổng lũy kế để tổng các dòng khớp tuyệt đối.
                 $target = OrderMoney::proportional(
                     $summary['discount_cents'],
-                    $cumulativeGross,
-                    $summary['subtotal_cents']
+                    $cumulativeBase,
+                    $summary['discount_base_cents']
                 );
                 $lineDiscount = $target - $allocated;
                 $allocated = $target;
-                OrderItem::create([
+                $orderItem = OrderItem::create([
                     'order_id' => $order->id,
                     'package_id' => $package->id,
                     'quantity' => (int) $item->quantity,
@@ -150,8 +153,12 @@ class CheckoutService implements CheckoutServiceInterface
                     ),
                     'cost_total' => null,
                 ]);
+                $discountedQuantities[(int) $orderItem->id] = $summary['discount_quantities'][(int) $item->id] ?? 0;
             }
             $this->stockService->reserve($order);
+            if ($summary['discount']?->discount_scope === 'lot') {
+                $this->lotDiscount->mark($order, $summary['discount'], $discountedQuantities);
+            }
             $redirect = null;
             if ($method === 'VNPAY') {
                 StockReservation::whereIn('order_item_id', $order->items()->select('id'))
@@ -223,6 +230,8 @@ class CheckoutService implements CheckoutServiceInterface
                 'Một số dòng hàng không còn trong giỏ của bạn.'
             );
         }
+        // Creation order determines order_item IDs; keep FEFO splitting identical in preview and reserve.
+        $items = $items->sortBy([['package_id', 'asc'], ['id', 'asc']])->values();
         $packages = $this->stockService->availability(
             $items->pluck('package_id')->all(),
             $lock
@@ -292,6 +301,11 @@ class CheckoutService implements CheckoutServiceInterface
         $this->assertRegion($delivery, $address);
         $discount = null;
         $discountCents = 0;
+        $discountBases = [];
+        foreach ($items as $item) $discountBases[(int) $item->id] = OrderMoney::multiply(OrderMoney::cents($item->package->price), (int) $item->quantity);
+        $discountBase = $subtotal;
+        $discountQuantities = [];
+        $discountLotCode = null;
         if (!empty($data['discount_code'])) {
             $query = Discount::query()
                 ->where(
@@ -305,6 +319,10 @@ class CheckoutService implements CheckoutServiceInterface
             if (
                 !$discount
                 || !$discount->is_active
+                || !in_array($discount->discount_scope ?? 'order', ['order', 'lot'], true)
+                || (($discount->discount_scope ?? 'order') === 'order' && $discount->lot_id !== null)
+                || ($discount->discount_scope === 'lot' && $discount->lot_id === null)
+                || ($discount->starts_at !== null && Carbon::parse($discount->starts_at)->isFuture())
                 || !$discount->expire_date
                 || $discount->expire_date->toDateString() < now()->toDateString()
                 || (
@@ -328,17 +346,28 @@ class CheckoutService implements CheckoutServiceInterface
                     'Phần trăm giảm giá không hợp lệ.'
                 );
             }
-            if ($subtotal < OrderMoney::cents($discount->min_order_value)) {
+            if ($discount->discount_scope === 'lot') {
+                $lotResult = $this->lotDiscount->bases($items, $discount, $lock);
+                $discountBases = $lotResult['bases'];
+                $discountQuantities = $lotResult['quantities'];
+                $discountLotCode = $lotResult['lot_code'];
+                $discountBase = array_sum($discountBases);
+            }
+            // Scope order: all merchandise. Scope lot: only the FEFO quantity from its lot.
+            // Shipping and other lots/SKUs never help a lot voucher meet its minimum.
+            if ($discountBase < OrderMoney::cents($discount->min_order_value)) {
                 $this->fail(
                     'discount_code',
-                    'Chưa đạt mức tiền hàng tối thiểu của mã giảm giá.'
+                    $discount->discount_scope === 'lot'
+                        ? 'Chưa đạt mức tiền hàng từ lô áp dụng tối thiểu của mã xả kho.'
+                        : 'Chưa đạt mức tiền hàng tối thiểu của mã giảm giá.'
                 );
             }
             // Làm tròn half-up đến 2 chữ số thập phân.
             $discountCents = min(
-                intdiv($subtotal * $percent + 50, 100),
+                intdiv($discountBase * $percent + 50, 100),
                 OrderMoney::cents($discount->max_discount_amount),
-                $subtotal
+                $discountBase
             );
         }
         $net = $subtotal - $discountCents;
@@ -364,6 +393,9 @@ class CheckoutService implements CheckoutServiceInterface
             'discount' => $discount,
             'subtotal_cents' => $subtotal,
             'discount_cents' => $discountCents,
+            'discount_bases' => $discountBases,
+            'discount_base_cents' => $discountBase,
+            'discount_quantities' => $discountQuantities,
             'delivery_cents' => $deliveryCents,
             'total_cents' => $totalCents,
             'public' => [
@@ -384,6 +416,11 @@ class CheckoutService implements CheckoutServiceInterface
                 ),
                 'discount' => $discount ? [
                     'id' => $discount->id,
+                    'discount_scope' => $discount->discount_scope ?? 'order',
+                    'lot_id' => $discount->lot_id,
+                    'lot_code' => $discountLotCode,
+                    'eligible_quantity' => array_sum($discountQuantities),
+                    'eligible_amount' => (float) OrderMoney::decimal($discountBase),
                     'discount_code' => $discount->discount_code,
                     'discount_description' => $discount->discount_description,
                     'discount_percent' => (int) $discount->discount_percent,

@@ -11,6 +11,7 @@ use App\Support\{
     OrderMoney,
 };
 use Carbon\CarbonImmutable;
+use App\Support\InventoryLotReservations;
 use Illuminate\Validation\ValidationException;
 
 class InventoryReportService implements InventoryReportServiceInterface
@@ -74,7 +75,7 @@ class InventoryReportService implements InventoryReportServiceInterface
         };
         foreach (
             $this->repository->batches($filters, $view === "ledger")
-            as [$packages, $lotGroups, $reserved, $txGroups, $movements]
+            as [$packages, $lotGroups, $reserved, $txGroups, $movements, $reservationState]
         ) {
             foreach ($packages as $p) {
                 $base = [
@@ -115,13 +116,15 @@ class InventoryReportService implements InventoryReportServiceInterface
                 $physical = (int) $p->quantity_available;
                 $lotQuantity = (int) $lots->sum("quantity_on_hand");
                 $held = (int) ($reserved[$p->id] ?? 0);
+                $holdInfo = $reservationState['packages'][(int) $p->id];
                 $eligible = 0;
                 $value = 0;
                 $unknown = 0;
                 $lotRows = [];
                 foreach ($lots as $lot) {
                     $qty = (int) $lot->quantity_on_hand;
-                    if ($qty <= 0) {
+                    $lotHold = InventoryLotReservations::describe($lot, $reservationState);
+                    if ($qty <= 0 && $lotHold['reserved_quantity'] === 0) {
                         continue;
                     }
                     $expired =
@@ -145,12 +148,15 @@ class InventoryReportService implements InventoryReportServiceInterface
                             OrderMoney::cents($amount),
                         );
                     }
-                    $issues = [];
+                    $issues = $lotHold['reservation_issues'];
+                    if ($lotHold['reserved_quantity'] > 0 && ($expired || $lot->status !== 'available')) {
+                        $issues[] = 'Lô đang giữ cho đơn nhưng không còn đủ điều kiện xuất.';
+                    }
                     if ($amount === null) {
                         $issues[] =
                             "Chưa xác định giá trị lô: thiếu/không hợp lệ giá vốn hoặc giá trị vượt giới hạn.";
                     }
-                    $lotRows[] = $base + [
+                    $lotRows[] = $base + $lotHold + [
                         "lot_id" => $lot->id,
                         "lot_code" => $lot->lot_code,
                         "supplier_name" => $lot->supplier_name,
@@ -169,7 +175,7 @@ class InventoryReportService implements InventoryReportServiceInterface
                         "issues" => $issues,
                     ];
                 }
-                $issues = [];
+                $issues = $holdInfo['issues'];
                 if ($physical !== $lotQuantity) {
                     $issues[] = "Tồn vật lý không khớp tổng tồn lô.";
                 }
@@ -236,6 +242,9 @@ class InventoryReportService implements InventoryReportServiceInterface
                             "lot_quantity" => $lotQuantity,
                             "eligible" => $eligible,
                             "reserved" => $held,
+                            "reserved_lot_quantity" => $holdInfo['reserved_lot_quantity'],
+                            "legacy_unallocated_quantity" => $holdInfo['legacy_unallocated_quantity'],
+                            "reservation_consistent" => !$holdInfo['issues'],
                             "available_to_sell" => $sellable,
                             "reservation_shortage" => max(0, $held - $eligible),
                             "reorder_level" => (int) $p->reorder_level,

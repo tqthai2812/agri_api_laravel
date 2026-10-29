@@ -14,6 +14,11 @@ class DiscountResource extends JsonResource
 
         return [
             'id' => $this->id,
+            'discount_scope' => $this->discount_scope ?? 'order',
+            'lot_id' => $this->lot_id,
+            'lot' => $this->voucher_lot,
+            'starts_at' => $this->starts_at?->toDateTimeString(),
+            'show_in_wallet' => (bool) $this->show_in_wallet,
 
             'user_id' => $this->user_id,
 
@@ -67,6 +72,7 @@ class DiscountResource extends JsonResource
 
     private function getStatus(): string
     {
+        if ($this->voucher_status) return $this->voucher_status;
         if (!$this->is_active) {
             return 'inactive';
         }
@@ -85,6 +91,9 @@ class DiscountResource extends JsonResource
     private function getStatusLabel(): string
     {
         return match ($this->getStatus()) {
+            'scheduled' => 'Chưa bắt đầu',
+            'out_of_stock' => 'Hết hàng có thể bán',
+            'stock_review' => 'Cần đối chiếu kho',
             'inactive' => 'Đã tắt',
             'expired' => 'Hết hạn',
             'used_up' => 'Hết lượt',

@@ -10,6 +10,7 @@ use App\Models\InventoryTransaction;
 use App\Models\Order;
 use App\Models\StockReservation;
 use App\Support\OrderMoney;
+use App\Support\InventoryLotReservations;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -34,6 +35,8 @@ class OrderStockService implements OrderStockServiceInterface
 
         $lots = $this->repository->lots($ids, $lock);
         $reservations = $this->repository->activeReservations($ids, $lock);
+
+        InventoryLotReservations::snapshot($ids, true, $lock);
 
         foreach ($packages as $package) {
             $packageLots = $lots->where('package_id', $package->id);
@@ -68,7 +71,7 @@ class OrderStockService implements OrderStockServiceInterface
     {
         $this->requireTransaction();
 
-        $items = $this->repository->orderItems($order->id);
+        $items = $order->items()->orderBy('package_id')->orderBy('id')->get();
 
         if ($items->isEmpty()) {
             $this->fail('Đơn hàng không có dòng hàng.');
@@ -79,6 +82,7 @@ class OrderStockService implements OrderStockServiceInterface
             true
         );
 
+        $items = $this->repository->orderItems($order->id);
         $existing = $this->repository->orderReservations(
             $items->pluck('id')->all()
         );
@@ -117,6 +121,8 @@ class OrderStockService implements OrderStockServiceInterface
                 'released_at' => null,
             ]);
         }
+        $lots = $this->repository->lots($packages->keys()->all(), true);
+        app(OrderLotReservationService::class)->assign($items, $lots);
     }
 
     public function assertReserved(Order $order): void
@@ -140,18 +146,36 @@ class OrderStockService implements OrderStockServiceInterface
 
     public function release(Order $order): void
     {
-        [, $reservations] = $this->reservedState($order);
-        app(OrderPickingPlan::class)->cancel($order);
-
-        foreach ($reservations as $reservation) {
-            $reservation->update([
-                'status' => 'released',
-                'released_at' => now(),
-            ]);
+        $this->requireTransaction();
+        $seed = $order->items()->orderBy('package_id')->orderBy('id')->get();
+        if ($seed->isEmpty()) $this->fail('Đơn hàng không có dòng hàng.');
+        $ids = $seed->pluck('package_id')->unique()->all();
+        // Giải phóng không phụ thuộc lô còn hạn hay số tồn đang khớp hay không.
+        // Khóa SKU/lô theo cùng thứ tự với reserve/issue, rồi mới khóa dòng đơn.
+        $packages = $this->repository->packages($ids, true);
+        $this->repository->lots($ids, true);
+        $items = $this->repository->orderItems($order->id);
+        $reservations = $this->repository->orderReservations($items->pluck('id')->all());
+        if ($reservations->count() !== $items->count()) $this->fail('Đơn thiếu dữ liệu giữ hàng.');
+        foreach ($items as $item) {
+            $r = $reservations->get($item->id);
+            if (
+                !$packages->has($item->package_id) || !$r
+                || !in_array($r->status, ['active', 'released'], true)
+                || (int) $r->package_id !== (int) $item->package_id
+                || (int) $r->quantity !== (int) $item->quantity
+            ) {
+                $this->fail('Dữ liệu giữ hàng không khớp hoặc đơn đã xuất kho.');
+            }
         }
-
-        // Không cộng quantity_available:
-        // giữ hàng chưa từng trừ tồn vật lý.
+        if ($reservations->every(fn($r) => $r->status === 'released')) return;
+        if ($reservations->contains(fn($r) => $r->status !== 'active')) $this->fail('Đơn có trạng thái giữ hàng không đồng nhất.');
+        app(OrderPickingPlan::class)->cancel($order);
+        foreach ($reservations as $reservation) {
+            $reservation->update(['status' => 'released', 'released_at' => now(), 'expires_at' => null]);
+        }
+        // Bảng con được giữ để tra cứu; trạng thái do cha quyết định.
+        // Giữ hàng chưa trừ tồn vật lý nên giải phóng không cộng lại tồn.
     }
 
     public function issue(Order $order, int $actorId): void
@@ -183,6 +207,7 @@ class OrderStockService implements OrderStockServiceInterface
             }
         }
 
+        app(OrderLotReservationService::class)->assign($items, $lots);
         $now = now();
 
         [$document, $documentItems, $allocations] = app(OrderPickingPlan::class)
@@ -280,6 +305,7 @@ class OrderStockService implements OrderStockServiceInterface
             $reservations->get($item->id)->update([
                 'status' => 'consumed',
                 'consumed_at' => $now,
+                'expires_at' => null,
             ]);
         }
 
@@ -296,7 +322,7 @@ class OrderStockService implements OrderStockServiceInterface
     {
         $this->requireTransaction();
 
-        $items = $this->repository->orderItems($order->id);
+        $items = $order->items()->orderBy('package_id')->orderBy('id')->get();
 
         if ($items->isEmpty()) {
             $this->fail('Đơn hàng không có dòng hàng.');
@@ -307,6 +333,7 @@ class OrderStockService implements OrderStockServiceInterface
             true
         );
 
+        $items = $this->repository->orderItems($order->id);
         $reservations = $this->repository->orderReservations(
             $items->pluck('id')->all()
         );

@@ -11,6 +11,7 @@ use App\Contracts\Services\{
 use App\Contracts\Repositories\InventoryReportRepositoryInterface;
 use App\Http\Resources\InventoryDocumentResource;
 use App\Models\ProductPackage;
+use App\Support\InventoryLotReservations;
 use App\Support\DashboardPeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -144,6 +145,9 @@ class InventoryReportController extends Controller
             $reserved = (int) DB::table('stock_reservations')->where('package_id', $package)
                 ->where('status', 'active')->sum('quantity');
 
+            $reservationState = InventoryLotReservations::snapshot([$package]);
+            $lotReservation = InventoryLotReservations::describe($row, $reservationState);
+
             return response()->json(['data' => [
                 'package' => [
                     'id' => (int) $sku->id,
@@ -154,6 +158,7 @@ class InventoryReportController extends Controller
                     'unit' => $sku->unit,
                 ],
                 'lot' => [
+                    ...$lotReservation,
                     'id' => (int) $row->id,
                     'package_id' => (int) $row->package_id,
                     'lot_code' => $row->lot_code,
@@ -165,6 +170,9 @@ class InventoryReportController extends Controller
                         && ($row->expires_on === null || $row->expires_on >= $today),
                 ],
                 'stock' => [
+                    'reservation_consistent' => $lotReservation['reservation_consistent'],
+                    'reservation_issues' => $lotReservation['reservation_issues'],
+                    'legacy_unallocated_quantity' => $lotReservation['legacy_unallocated_quantity'],
                     'physical' => (int) $sku->quantity_available,
                     'lot_quantity' => $lotQuantity,
                     'eligible' => $eligible,
