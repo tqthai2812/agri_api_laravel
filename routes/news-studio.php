@@ -4,10 +4,26 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\V1\NewsStudioController as Studio;
 use App\Http\Controllers\Client\V1\NewsCommentController as Comments;
 use App\Http\Controllers\Client\V1\PublicNewsController as PublicNews;
+use App\Http\Controllers\Client\V1\NewsCommentReactionController as Reactions;
 Route::prefix("v1")->group(function () {
     Route::get("news-topics", [PublicNews::class, "topics"]);
     Route::get("public/news/{slug}/comments", [Comments::class, "index"]);
+    Route::get("news-comments/{comment}/reactions", [Reactions::class, "index"])
+        ->whereNumber("comment")
+        ->middleware("throttle:60,1");
     Route::middleware("auth:sanctum")->group(function () {
+        Route::put("news-comments/{comment}/reaction", [
+            Reactions::class,
+            "update",
+        ])
+            ->whereNumber("comment")
+            ->middleware("throttle:30,1");
+        Route::delete("news-comments/{comment}/reaction", [
+            Reactions::class,
+            "destroy",
+        ])
+            ->whereNumber("comment")
+            ->middleware("throttle:30,1");
         Route::get("public/news/{slug}/my-comments", [Comments::class, "mine"]);
         Route::post("public/news/{slug}/comments", [
             Comments::class,
@@ -43,6 +59,16 @@ Route::prefix("v1")->group(function () {
             "deleteImage",
         ])->middleware("permission:article.update");
         Route::middleware("permission:article.update")->group(function () {
+            Route::get("public/news/{slug}/hidden-comments", [
+                Comments::class,
+                "hidden",
+            ])->middleware("throttle:60,1");
+            Route::patch("public/news/{slug}/hidden-comments/{comment}", [
+                Comments::class,
+                "restoreHidden",
+            ])
+                ->whereNumber("comment")
+                ->middleware("throttle:30,1");
             Route::get("news-comment-moderation", [
                 Comments::class,
                 "moderation",

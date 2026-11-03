@@ -49,6 +49,37 @@ class NewsComment extends Model
         return $this->hasMany(NewsComment::class, "parent_id");
     }
 
+    public function reactions(): HasMany
+    {
+        return $this->hasMany(NewsCommentReaction::class);
+    }
+
+    public function scopeWithReactionSummary($query, ?int $viewerId = null)
+    {
+        $query->withCount([
+            "reactions as reaction_like_count" => fn($q) => $q->where(
+                "type",
+                "like",
+            ),
+            "reactions as reaction_dislike_count" => fn($q) => $q->where(
+                "type",
+                "dislike",
+            ),
+        ]);
+        if ($viewerId !== null) {
+            $query->addSelect([
+                "my_reaction" => NewsCommentReaction::select("type")
+                    ->whereColumn(
+                        "news_comment_id",
+                        $query->getModel()->getTable() . ".id",
+                    )
+                    ->where("user_id", $viewerId)
+                    ->limit(1),
+            ]);
+        }
+        return $query;
+    }
+
     public function scopeVisible($q)
     {
         // Eloquent aliases this table when counting the self-referencing replies relation.

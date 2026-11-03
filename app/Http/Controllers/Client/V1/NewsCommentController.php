@@ -2,7 +2,7 @@
 namespace App\Http\Controllers\Client\V1;
 use App\Http\Controllers\Controller;
 use App\Models\NewsComment;
-use App\Support\NewsHtml;
+use App\Support\NewsUserProfile;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -16,29 +16,17 @@ class NewsCommentController extends Controller
             "parent_id" => $c->parent_id,
             "user_id" => $c->user_id,
             "author" => $c->user?->name ?? "Thành viên",
-            "avatar_url" => self::avatar($c->user?->avatar),
+            "avatar_url" => NewsUserProfile::avatar($c->user?->avatar),
             "content" => $c->content,
             "status" => $c->status,
+            // Legacy columns are not authoritative: count real reaction rows.
+            "like_count" => (int) ($c->reaction_like_count ?? 0),
+            "dislike_count" => (int) ($c->reaction_dislike_count ?? 0),
+            "my_reaction" => $c->my_reaction ?? null,
             "created_at" => $c->created_at?->toIso8601String(),
             "replies_count" => (int) ($c->replies_count ?? 0),
             "article_title" => $c->news?->title,
         ];
-    }
-    private static function avatar(?string $path): ?string
-    {
-        if (!$path) {
-            return null;
-        }
-        if (preg_match("~^https?://~i", $path)) {
-            return $path;
-        }
-        if (preg_match("~^[a-z][a-z0-9+.-]*:|^//~i", $path)) {
-            return null;
-        }
-        $path = ltrim($path, "/");
-        return str_starts_with($path, "storage/")
-            ? asset($path)
-            : NewsHtml::url($path);
     }
     public function index(Request $r, string $slug)
     {
@@ -52,7 +40,8 @@ class NewsCommentController extends Controller
         $q = $n
             ->comments()
             ->visible()
-            ->with(["user:id,name,avatar", "news:id,title"]);
+            ->with(["user:id,name,avatar", "news:id,title"])
+            ->withReactionSummary($r->user("sanctum")?->id);
         if ($r->filled("parent_id")) {
             $n->comments()
                 ->visible()
@@ -76,6 +65,7 @@ class NewsCommentController extends Controller
             ->comments()
             ->where("user_id", $r->user()->id)
             ->with(["user:id,name,avatar", "news:id,title"])
+            ->withReactionSummary((int) $r->user()->id)
             ->latest("id")
             ->paginate(15)
             ->through(fn($c) => self::data($c));
@@ -161,6 +151,7 @@ class NewsCommentController extends Controller
             "search" => "nullable|string|max:200",
         ]);
         return NewsComment::with(["user:id,name,avatar", "news:id,title"])
+            ->withReactionSummary((int) $r->user()->id)
             ->when(
                 $r->filled("status"),
                 fn($q) => $q->where("status", $r->status),
@@ -172,6 +163,111 @@ class NewsCommentController extends Controller
             ->latest("id")
             ->paginate(20)
             ->through(fn($c) => self::data($c));
+    }
+    private function requireModerator(Request $r): void
+    {
+        abort_unless($r->user(), 401);
+        abort_unless($r->user()->can("article.update"), 403);
+    }
+    public function hidden(Request $r, string $slug)
+    {
+        $this->requireModerator($r);
+        $r->validate(["page" => "nullable|integer|min:1"]);
+        $n = PublicNewsController::published()
+            ->where("slug", $slug)
+            ->firstOrFail();
+        return $n
+            ->comments()
+            ->where(function ($q) use ($n) {
+                $q->where("status", "hidden")->orWhere(function ($q) use ($n) {
+                    $q->where("status", "active")->whereHas(
+                        "parent",
+                        fn($p) => $p
+                            ->where("news_id", $n->id)
+                            ->whereNull("parent_id")
+                            ->where("status", "hidden"),
+                    );
+                });
+            })
+            ->with([
+                "user:id,name,avatar",
+                "parent" => fn($q) => $q
+                    ->select("id", "news_id", "parent_id", "status", "content")
+                    ->where("news_id", $n->id)
+                    ->whereNull("parent_id"),
+            ])
+            ->latest("id")
+            ->paginate(15, ["*"], "page", $r->integer("page", 1))
+            ->through(function ($c) {
+                $parent = $c->parent;
+                $blocked = $c->parent_id && $parent?->status !== "active";
+                $restoreId = $blocked
+                    ? ($parent?->status === "hidden"
+                        ? $parent->id
+                        : null)
+                    : ($c->status === "hidden"
+                        ? $c->id
+                        : null);
+                return [
+                    "id" => $c->id,
+                    "parent_id" => $c->parent_id,
+                    "author" => $c->user?->name ?? "Thành viên",
+                    "avatar_url" => NewsUserProfile::avatar($c->user?->avatar),
+                    "content" => $c->content,
+                    "status" => $c->status,
+                    "created_at" => $c->created_at?->toIso8601String(),
+                    "hidden_by_parent" => (bool) $blocked,
+                    "parent_excerpt" => $parent
+                        ? \Illuminate\Support\Str::limit($parent->content, 180)
+                        : null,
+                    "restore_id" => $restoreId,
+                ];
+            });
+    }
+    public function restoreHidden(
+        Request $r,
+        string $slug,
+        NewsComment $comment,
+    ) {
+        $this->requireModerator($r);
+        return DB::transaction(function () use ($slug, $comment) {
+            // Same lock order as posting comments and reacting: article, root, reply.
+            $n = PublicNewsController::published()
+                ->where("slug", $slug)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $target = $n->comments()->findOrFail($comment->id);
+            $root = $n
+                ->comments()
+                ->whereNull("parent_id")
+                ->whereKey($target->parent_id ?: $target->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            if ($target->parent_id) {
+                abort_unless(
+                    $root->status === "active",
+                    409,
+                    "Hãy hiển thị lại bình luận gốc trước.",
+                );
+                $target = $n
+                    ->comments()
+                    ->where("parent_id", $root->id)
+                    ->whereKey($target->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+            } else {
+                $target = $root;
+            }
+            abort_unless(
+                in_array($target->status, ["active", "hidden"], true),
+                409,
+                "Bình luận này không ở trạng thái có thể hiển thị lại.",
+            );
+            if ($target->status === "hidden") {
+                $target->update(["status" => "active"]);
+            }
+            return ["data" => ["id" => $target->id, "status" => "active"]];
+        }, 3);
     }
     public function moderate(Request $r, NewsComment $comment)
     {
