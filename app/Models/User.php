@@ -16,16 +16,15 @@ use Spatie\Permission\Traits\HasRoles;
 use App\Notifications\CustomResetPasswordNotification;
 
 #[Fillable([
-    'name',
-    'email',
-    'email_verified_at',
-    'password',
-    'avatar',
-    'role',
-    'phone_number',
-    'is_active',
+    "name",
+    "email",
+    "email_verified_at",
+    "password",
+    "avatar",
+    "phone_number",
+    "is_active",
 ])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(["password", "remember_token"])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -39,14 +38,16 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'is_active' => 'boolean',
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            "is_active" => "boolean",
+            "email_verified_at" => "datetime",
+            "password" => "hashed",
         ];
     }
 
-    const ROLE_ADMIN = 'admin';
-    const ROLE_CUSTOMER = 'customer';
+    protected string $guard_name = "web";
+
+    const ROLE_ADMIN = "admin";
+    const ROLE_CUSTOMER = "customer";
 
     public function shippingAddresses(): HasMany
     {
@@ -78,12 +79,12 @@ class User extends Authenticatable
     }
     public function inventoryTransactions(): HasMany
     {
-        return $this->hasMany(InventoryTransaction::class, 'performed_by');
+        return $this->hasMany(InventoryTransaction::class, "performed_by");
     }
 
     public function orderHistories(): HasMany
     {
-        return $this->hasMany(OrderHistory::class, 'created_by');
+        return $this->hasMany(OrderHistory::class, "created_by");
     }
 
     public function productReviews(): HasMany

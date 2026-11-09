@@ -22,15 +22,16 @@ class LoginController extends Controller
         $user = $request->user();
 
         $data = [
-            'user' => array_merge($user->toArray(), [
-                'roles' => $user->getRoleNames(),
-                'permissions' => $user->getAllPermissions()->pluck('name'),
-            ]),
-            'message' => 'Đăng nhập thành công',
+            "user" => (new \App\Http\Resources\AccessUserResource(
+                $user,
+            ))->resolve($request),
+            "message" => "Đăng nhập thành công",
         ];
 
-        if ($request->has('device_name')) {
-            $data['token'] = $user->createToken($request->device_name)->plainTextToken;
+        if ($request->filled("device_name")) {
+            $data["token"] = $user->createToken(
+                $request->device_name,
+            )->plainTextToken;
         }
 
         return response()->json($data);
@@ -47,14 +48,14 @@ class LoginController extends Controller
 
         // SPA cookie: kết thúc session hiện tại.
         if ($request->hasSession()) {
-            Auth::guard('web')->logout();
+            Auth::guard("web")->logout();
 
             $request->session()->invalidate();
             $request->session()->regenerateToken();
         }
 
         return response()->json([
-            'message' => 'Đã đăng xuất thành công',
+            "message" => "Đã đăng xuất thành công",
         ]);
     }
 }

@@ -31,13 +31,10 @@ use App\Http\Controllers\Client\V1\WishlistController;
 use App\Http\Controllers\Client\V1\LocationController;
 
 Route::middleware("auth:sanctum")->get("/user", function (Request $request) {
-    $user = $request->user();
-
     return response()->json([
-        "user" => array_merge($user->toArray(), [
-            "roles" => $user->getRoleNames(),
-            "permissions" => $user->getAllPermissions()->pluck("name"),
-        ]),
+        "user" => (new \App\Http\Resources\AccessUserResource(
+            $request->user(),
+        ))->resolve($request),
     ]);
 });
 
@@ -57,6 +54,10 @@ Route::prefix("v1")
         Route::get("permissions", [PermissionController::class, "index"]);
 
         Route::put("users/{user}/roles", [UserRoleController::class, "update"]);
+        Route::put("users/{user}/permissions", [
+            \App\Http\Controllers\Admin\V1\UserPermissionController::class,
+            "update",
+        ]);
         Route::apiResource("users", UserController::class)->only([
             "index",
             "store",

@@ -65,47 +65,133 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(\App\Contracts\Repositories\ContactRepositoryInterface::class, \App\Repositories\ContactRepository::class);
-        $this->app->bind(\App\Contracts\Services\ContactServiceInterface::class, \App\Services\ContactService::class);
-        $this->app->bind(AdminProductReviewRepositoryInterface::class, AdminProductReviewRepository::class);
-        $this->app->bind(AdminProductReviewServiceInterface::class, AdminProductReviewService::class);
-        $this->app->bind(ProductRepositoryInterface::class, ProductRepository::class);
+        // Register before Spatie boots its Gate hook so an inactive account always fails first.
+        \Illuminate\Support\Facades\Gate::before(function (
+            $user,
+            string $ability,
+        ) {
+            if ($user instanceof \App\Models\User && !$user->is_active) {
+                return false;
+            }
+            return $user instanceof \App\Models\User &&
+                $user->hasRole("admin", "web")
+                ? true
+                : null;
+        });
+
+        $this->app->bind(
+            \App\Contracts\Repositories\ContactRepositoryInterface::class,
+            \App\Repositories\ContactRepository::class,
+        );
+        $this->app->bind(
+            \App\Contracts\Services\ContactServiceInterface::class,
+            \App\Services\ContactService::class,
+        );
+        $this->app->bind(
+            AdminProductReviewRepositoryInterface::class,
+            AdminProductReviewRepository::class,
+        );
+        $this->app->bind(
+            AdminProductReviewServiceInterface::class,
+            AdminProductReviewService::class,
+        );
+        $this->app->bind(
+            ProductRepositoryInterface::class,
+            ProductRepository::class,
+        );
         $this->app->bind(ProductServiceInterface::class, ProductService::class);
-        $this->app->bind(ImageUploadServiceInterface::class, ImageUploadService::class);
-        $this->app->bind(InventoryRepositoryInterface::class, InventoryRepository::class);
-        $this->app->bind(InventoryServiceInterface::class, InventoryService::class);
-        $this->app->bind(SupplierRepositoryInterface::class, SupplierRepository::class);
-        $this->app->bind(SupplierServiceInterface::class, SupplierService::class);
-        $this->app->bind(InventoryDocumentRepositoryInterface::class, InventoryDocumentRepository::class);
-        $this->app->bind(InventoryDocumentServiceInterface::class, InventoryDocumentService::class);
-        $this->app->bind(DeliveryMethodRepositoryInterface::class, DeliveryMethodRepository::class);
-        $this->app->bind(DeliveryMethodServiceInterface::class, DeliveryMethodService::class);
-        $this->app->bind(DiscountRepositoryInterface::class, DiscountRepository::class);
-        $this->app->bind(DiscountServiceInterface::class, DiscountService::class);
-        $this->app->bind(OrderRepositoryInterface::class, OrderRepository::class);
+        $this->app->bind(
+            ImageUploadServiceInterface::class,
+            ImageUploadService::class,
+        );
+        $this->app->bind(
+            InventoryRepositoryInterface::class,
+            InventoryRepository::class,
+        );
+        $this->app->bind(
+            InventoryServiceInterface::class,
+            InventoryService::class,
+        );
+        $this->app->bind(
+            SupplierRepositoryInterface::class,
+            SupplierRepository::class,
+        );
+        $this->app->bind(
+            SupplierServiceInterface::class,
+            SupplierService::class,
+        );
+        $this->app->bind(
+            InventoryDocumentRepositoryInterface::class,
+            InventoryDocumentRepository::class,
+        );
+        $this->app->bind(
+            InventoryDocumentServiceInterface::class,
+            InventoryDocumentService::class,
+        );
+        $this->app->bind(
+            DeliveryMethodRepositoryInterface::class,
+            DeliveryMethodRepository::class,
+        );
+        $this->app->bind(
+            DeliveryMethodServiceInterface::class,
+            DeliveryMethodService::class,
+        );
+        $this->app->bind(
+            DiscountRepositoryInterface::class,
+            DiscountRepository::class,
+        );
+        $this->app->bind(
+            DiscountServiceInterface::class,
+            DiscountService::class,
+        );
+        $this->app->bind(
+            OrderRepositoryInterface::class,
+            OrderRepository::class,
+        );
         $this->app->bind(OrderServiceInterface::class, OrderService::class);
         $this->app->bind(CartRepositoryInterface::class, CartRepository::class);
         $this->app->bind(CartServiceInterface::class, CartService::class);
-        $this->app->bind(CheckoutServiceInterface::class, CheckoutService::class);
+        $this->app->bind(
+            CheckoutServiceInterface::class,
+            CheckoutService::class,
+        );
         $this->app->bind(NewsRepositoryInterface::class, NewsRepository::class);
         $this->app->bind(NewsServiceInterface::class, NewsService::class);
-        $this->app->bind(WishlistRepositoryInterface::class, WishlistRepository::class);
-        $this->app->bind(WishlistServiceInterface::class, WishlistService::class);
-        $this->app->bind(LocationServiceInterface::class, LocationService::class);
-        $this->app->bind(ProductReviewRepositoryInterface::class, ProductReviewRepository::class);
-        $this->app->bind(ProductReviewServiceInterface::class, ProductReviewService::class);
+        $this->app->bind(
+            WishlistRepositoryInterface::class,
+            WishlistRepository::class,
+        );
+        $this->app->bind(
+            WishlistServiceInterface::class,
+            WishlistService::class,
+        );
+        $this->app->bind(
+            LocationServiceInterface::class,
+            LocationService::class,
+        );
+        $this->app->bind(
+            ProductReviewRepositoryInterface::class,
+            ProductReviewRepository::class,
+        );
+        $this->app->bind(
+            ProductReviewServiceInterface::class,
+            ProductReviewService::class,
+        );
     }
 
     public function boot(): void
     {
-        ResetPassword::createUrlUsing(function (object $notifiable, string $token) {
-            return config('app.frontend_url')
-                . "/password-reset/$token?email="
-                . $notifiable->getEmailForPasswordReset();
+        ResetPassword::createUrlUsing(function (
+            object $notifiable,
+            string $token,
+        ) {
+            return config("app.frontend_url") .
+                "/password-reset/$token?email=" .
+                $notifiable->getEmailForPasswordReset();
         });
 
-        $this->loadRoutesFrom(base_path('routes/inventory-management.php'));
-        $this->loadRoutesFrom(base_path('routes/product-reviews.php'));
-        $this->loadRoutesFrom(base_path('routes/contacts.php'));
+        $this->loadRoutesFrom(base_path("routes/inventory-management.php"));
+        $this->loadRoutesFrom(base_path("routes/product-reviews.php"));
+        $this->loadRoutesFrom(base_path("routes/contacts.php"));
     }
 }

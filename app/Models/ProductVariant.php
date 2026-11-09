@@ -25,4 +25,9 @@ class ProductVariant extends Model
     {
         return $this->hasMany(ProductPackage::class, 'variant_id');
     }
+
+    public function usageGuides(): HasMany
+    {
+        return $this->hasMany(ProductUsageGuide::class, 'variant_id');
+    }
 }

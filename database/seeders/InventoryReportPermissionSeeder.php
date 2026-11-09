@@ -1,11 +1,8 @@
 <?php
-
 namespace Database\Seeders;
-
 use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\{Permission, Role};
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
-
 class InventoryReportPermissionSeeder extends Seeder
 {
     public function run(): void
@@ -15,12 +12,7 @@ class InventoryReportPermissionSeeder extends Seeder
         foreach ($names as $name) {
             Permission::firstOrCreate(["name" => $name, "guard_name" => "web"]);
         }
-        $admin = Role::where("name", "admin")
-            ->where("guard_name", "web")
-            ->first();
-        if ($admin) {
-            $admin->givePermissionTo($names);
-        }
+        // Permission catalog only; reruns never re-grant revoked permissions.
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }
