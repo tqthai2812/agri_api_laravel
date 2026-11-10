@@ -10,6 +10,8 @@ return [
         "subcategory" => "Danh mục con",
         "origin" => "Xuất xứ",
         "product" => "Sản phẩm",
+        "crop" => "Cây trồng",
+        "usage-guide" => "Hướng dẫn sử dụng vật tư",
         "order" => "Đơn hàng",
         "user" => "Người dùng",
         "role" => "Vai trò",

@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductPackage;
 use App\Models\ProductVariant;
+use App\Models\ProductUsageGuide;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -129,7 +130,7 @@ class ProductRepository implements ProductRepositoryInterface
                 return false;
             }
 
-            foreach (['product_suppliers', 'disease_products'] as $table) {
+            foreach (['product_suppliers'] as $table) {
                 if (DB::table($table)->where('product_id', $id)->exists()) {
                     throw ValidationException::withMessages([
                         'product' => [
@@ -137,6 +138,14 @@ class ProductRepository implements ProductRepositoryInterface
                         ],
                     ]);
                 }
+            }
+
+            if (ProductUsageGuide::query()->whereHas(
+                'variant', fn($query) => $query->where('product_id', $id)
+            )->exists()) {
+                throw ValidationException::withMessages([
+                    'product' => ['Không thể xóa sản phẩm đang có hướng dẫn sử dụng. Hãy ẩn sản phẩm nếu ngừng bán.'],
+                ]);
             }
 
             $packages = ProductPackage::query()
@@ -315,6 +324,15 @@ class ProductRepository implements ProductRepositoryInterface
                     }
 
                     $keptPackageIds[] = $package->id;
+                }
+            }
+
+            foreach ($variants as $variant) {
+                if (!in_array($variant->id, $keptVariantIds, true)
+                    && ProductUsageGuide::query()->where('variant_id', $variant->id)->exists()) {
+                    throw ValidationException::withMessages([
+                        'variants' => ["Không thể xóa biến thể {$variant->variant_name} vì đang có hướng dẫn sử dụng."],
+                    ]);
                 }
             }
 

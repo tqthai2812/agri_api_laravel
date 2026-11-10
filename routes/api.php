@@ -235,3 +235,5 @@ require __DIR__ . "/auth.php";
 require __DIR__ . "/vouchers.php";
 
 require __DIR__ . "/news-studio.php";
+
+require __DIR__ . '/farm-utilities.php';
