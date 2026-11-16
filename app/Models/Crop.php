@@ -12,11 +12,16 @@ class Crop extends Model
 
     protected $table = 'crops';
 
-    protected $fillable = ['name', 'slug', 'is_active'];
+    protected $fillable = ['name', 'slug', 'aliases', 'is_active'];
 
     protected $attributes = ['is_active' => true];
 
-    protected $casts = ['is_active' => 'boolean'];
+    protected $casts = ['aliases' => 'array', 'is_active' => 'boolean'];
+
+    public function growthStages(): HasMany
+    {
+        return $this->hasMany(CropGrowthStage::class);
+    }
 
     public function usageGuides(): HasMany
     {

@@ -13,7 +13,7 @@ class FarmUtilityPermissionSeeder extends Seeder
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
         $permissions = [];
-        foreach (['crop', 'usage-guide'] as $group) {
+        foreach (['crop', 'usage-guide', 'product-purpose', 'crop-growth-stage'] as $group) {
             foreach (['view', 'create', 'update', 'delete'] as $action) {
                 $permissions[] = Permission::firstOrCreate([
                     'name' => $group.'.'.$action, 'guard_name' => 'web',

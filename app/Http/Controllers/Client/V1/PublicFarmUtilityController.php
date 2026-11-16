@@ -21,10 +21,9 @@ class PublicFarmUtilityController extends Controller
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
         $query = Crop::query()->where('is_active', true)
-            ->whereHas('usageGuides', fn ($q) => $q->where('is_active', true)
-                ->whereHas('variant.product', fn ($p) => $p->where('is_show', true)));
+            ->whereIn('id', $this->service->guideQuery(true)->select('crop_id'));
         if (($term = trim($data['search'] ?? '')) !== '') {
-            $query->where('name', 'like', '%'.$term.'%');
+            $query->where(fn ($q) => $q->where('name', 'like', '%'.$term.'%')->orWhereJsonContains('aliases', $term));
         }
 
         return CropResource::collection($query->orderBy('name')->orderBy('id')->paginate(30))->response();
@@ -35,6 +34,8 @@ class PublicFarmUtilityController extends Controller
         $data = $request->validate([
             'search' => ['nullable', 'string', 'max:255'],
             'crop_id' => ['nullable', 'integer', 'min:1'],
+            'purpose_id' => ['nullable', 'integer', 'min:1'],
+            'growth_stage_id' => ['nullable', 'integer', 'min:1'],
             'variant_id' => ['nullable', 'integer', 'min:1'],
             'product_id' => ['nullable', 'integer', 'min:1'],
             'page' => ['nullable', 'integer', 'min:1'],

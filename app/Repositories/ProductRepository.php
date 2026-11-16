@@ -8,6 +8,8 @@ use App\Models\ProductImage;
 use App\Models\ProductPackage;
 use App\Models\ProductVariant;
 use App\Models\ProductUsageGuide;
+use App\Models\AiKnowledgeDocument;
+use App\Services\FarmKnowledgeState;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -114,9 +116,13 @@ class ProductRepository implements ProductRepositoryInterface
 
     public function update(int $id, array $data): bool
     {
-        $product = $this->findById($id);
-
-        return $product ? $product->update($data) : false;
+        return DB::transaction(function () use ($id, $data): bool {
+            $product = $this->model->newQuery()->lockForUpdate()->find($id);
+            if (!$product) return false;
+            $updated = $product->update($data);
+            app(FarmKnowledgeState::class)->product($id);
+            return $updated;
+        }, 3);
     }
 
     public function delete(int $id): bool
@@ -162,6 +168,10 @@ class ProductRepository implements ProductRepositoryInterface
             }
 
             // Các ảnh/biến thể/package được xóa bằng FK cascade.
+            if (AiKnowledgeDocument::query()->where('product_id', $product->id)->exists()) {
+                throw ValidationException::withMessages(['product' => ['Sản phẩm đang có tài liệu chỉ mục AI. Có thể tắt hiển thị; cần dọn tài liệu trước khi xóa.']]);
+            }
+
             return (bool) $product->delete();
         });
     }
@@ -348,6 +358,7 @@ class ProductRepository implements ProductRepositoryInterface
                     $variant->delete();
                 }
             }
+            app(FarmKnowledgeState::class)->product($productId);
         });
     }
 

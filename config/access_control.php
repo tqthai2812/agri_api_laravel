@@ -11,6 +11,8 @@ return [
         "origin" => "Xuất xứ",
         "product" => "Sản phẩm",
         "crop" => "Cây trồng",
+        "product-purpose" => "Công dụng sản phẩm",
+        "crop-growth-stage" => "Giai đoạn sinh trưởng",
         "usage-guide" => "Hướng dẫn sử dụng vật tư",
         "order" => "Đơn hàng",
         "user" => "Người dùng",

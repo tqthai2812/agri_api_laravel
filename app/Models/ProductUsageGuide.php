@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ProductUsageGuide extends Model
 {
@@ -18,8 +20,8 @@ class ProductUsageGuide extends Model
     protected $fillable = [
         'variant_id',
         'crop_id',
-        'purpose',
-        'growth_stage',
+        'purpose_id',
+        'growth_stage_scope',
         'application_method',
         'dose_unit',
         'dose_per_ha_min',
@@ -35,7 +37,7 @@ class ProductUsageGuide extends Model
         'is_active',
     ];
 
-    protected $attributes = ['is_active' => false];
+    protected $attributes = ['is_active' => false, 'growth_stage_scope' => 'unspecified'];
 
     // Decimal trả về chuỗi 6 chữ số thập phân; giá trị NULL vẫn là NULL.
     protected $casts = [
@@ -48,6 +50,22 @@ class ProductUsageGuide extends Model
         'pre_harvest_days' => 'integer',
         'is_active' => 'boolean',
     ];
+
+    public function purpose(): BelongsTo
+    {
+        return $this->belongsTo(ProductPurpose::class);
+    }
+
+    public function growthStages(): BelongsToMany
+    {
+        return $this->belongsToMany(CropGrowthStage::class, 'product_usage_guide_growth_stages', 'guide_id', 'growth_stage_id')
+            ->using(ProductUsageGuideGrowthStage::class)->withPivot('crop_id')->orderBy('sort_order')->orderBy('crop_growth_stages.id');
+    }
+
+    public function knowledgeDocuments(): HasMany
+    {
+        return $this->hasMany(AiKnowledgeDocument::class, 'usage_guide_id');
+    }
 
     public function crop(): BelongsTo
     {

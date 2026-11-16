@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\FarmUtility\CropRequest;
 use App\Http\Resources\CropResource;
 use App\Models\Crop;
+use App\Services\FarmKnowledgeState;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -35,7 +36,7 @@ class CropController extends Controller implements HasMiddleware
         ]);
         $query = Crop::query()->withCount('usageGuides');
         if (($term = trim($data['search'] ?? '')) !== '') {
-            $query->where(fn ($q) => $q->where('name', 'like', '%'.$term.'%')->orWhere('slug', 'like', '%'.$term.'%'));
+            $query->where(fn ($q) => $q->where('name', 'like', '%'.$term.'%')->orWhere('slug', 'like', '%'.$term.'%')->orWhereJsonContains('aliases', $term));
         }
         if (isset($data['is_active'])) {
             $query->where('is_active', $data['is_active']);
@@ -59,7 +60,12 @@ class CropController extends Controller implements HasMiddleware
 
     public function update(CropRequest $request, Crop $crop): JsonResponse
     {
-        $crop->update($request->validated());
+        $crop = DB::transaction(function () use ($request, $crop) {
+            $crop = Crop::query()->lockForUpdate()->findOrFail($crop->id);
+            $crop->update($request->validated());
+            app(FarmKnowledgeState::class)->crop($crop->id);
+            return $crop;
+        }, 3);
 
         return response()->json(['message' => 'Đã cập nhật cây trồng.', 'data' => new CropResource($crop)]);
     }
@@ -68,9 +74,9 @@ class CropController extends Controller implements HasMiddleware
     {
         DB::transaction(function () use ($crop): void {
             $crop = Crop::query()->lockForUpdate()->findOrFail($crop->id);
-            if ($crop->usageGuides()->exists()) {
+            if ($crop->usageGuides()->exists() || $crop->growthStages()->exists()) {
                 throw ValidationException::withMessages([
-                    'crop' => ['Cây trồng đang có hướng dẫn sử dụng. Bạn có thể tắt hiển thị thay vì xóa.'],
+                    'crop' => ['Cây trồng đang có hướng dẫn hoặc giai đoạn sinh trưởng. Bạn có thể tắt hiển thị thay vì xóa.'],
                 ]);
             }
             $crop->delete();

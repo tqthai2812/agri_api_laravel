@@ -13,6 +13,7 @@ class CropResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'slug' => $this->slug,
+            'aliases' => $this->aliases,
             'is_active' => (bool) $this->is_active,
             'usage_guides_count' => $this->whenCounted('usageGuides'),
             'created_at' => $this->created_at?->toIso8601String(),

@@ -5,8 +5,12 @@ namespace App\Http\Controllers\Admin\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\FarmUtility\UsageGuideRequest;
 use App\Http\Resources\CropResource;
+use App\Http\Resources\ProductPurposeResource;
+use App\Http\Resources\CropGrowthStageResource;
 use App\Http\Resources\ProductUsageGuideResource;
 use App\Models\Crop;
+use App\Models\ProductPurpose;
+use App\Models\CropGrowthStage;
 use App\Models\ProductUsageGuide;
 use App\Models\ProductVariant;
 use App\Services\FarmUtilityService;
@@ -26,7 +30,8 @@ class ProductUsageGuideController extends Controller implements HasMiddleware
             new Middleware('permission:usage-guide.create', only: ['store']),
             new Middleware('permission:usage-guide.update', only: ['update']),
             new Middleware('permission:usage-guide.delete', only: ['destroy']),
-            new Middleware('permission:usage-guide.view|usage-guide.create|usage-guide.update', only: ['crops', 'variants']),
+            new Middleware('permission:usage-guide.view|usage-guide.create|usage-guide.update', only: ['purposes', 'growthStages', 'variants']),
+            new Middleware('permission:usage-guide.view|usage-guide.create|usage-guide.update|crop-growth-stage.view|crop-growth-stage.create|crop-growth-stage.update', only: ['crops']),
         ];
     }
 
@@ -36,6 +41,9 @@ class ProductUsageGuideController extends Controller implements HasMiddleware
             'search' => ['nullable', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
             'crop_id' => ['nullable', 'integer', 'min:1'],
+            'purpose_id' => ['nullable', 'integer', 'min:1'],
+            'growth_stage_id' => ['nullable', 'integer', 'min:1'],
+            'growth_stage_scope' => ['nullable', 'in:unspecified,specific,all'],
             'variant_id' => ['nullable', 'integer', 'min:1'],
             'product_id' => ['nullable', 'integer', 'min:1'],
             'page' => ['nullable', 'integer', 'min:1'],
@@ -48,7 +56,7 @@ class ProductUsageGuideController extends Controller implements HasMiddleware
 
     public function show(ProductUsageGuide $usageGuide): JsonResponse
     {
-        return response()->json(['data' => new ProductUsageGuideResource($usageGuide->load(['crop', 'variant.product']))]);
+        return response()->json(['data' => new ProductUsageGuideResource($this->service->guideQuery()->findOrFail($usageGuide->id))]);
     }
 
     public function store(UsageGuideRequest $request): JsonResponse
@@ -69,7 +77,7 @@ class ProductUsageGuideController extends Controller implements HasMiddleware
 
     public function destroy(ProductUsageGuide $usageGuide): JsonResponse
     {
-        $usageGuide->delete();
+        $this->service->deleteGuide($usageGuide);
 
         return response()->json(['message' => 'Đã xóa hướng dẫn sử dụng.']);
     }
@@ -79,7 +87,7 @@ class ProductUsageGuideController extends Controller implements HasMiddleware
         $data = $this->optionFilters($request);
         $query = Crop::query();
         if (($term = trim($data['search'] ?? '')) !== '') {
-            $query->where('name', 'like', '%'.$term.'%');
+            $query->where(fn ($q) => $q->where('name', 'like', '%'.$term.'%')->orWhereJsonContains('aliases', $term));
         }
 
         return CropResource::collection($query->orderBy('name')->orderBy('id')->paginate(30))->response();
@@ -107,6 +115,27 @@ class ProductUsageGuideController extends Controller implements HasMiddleware
                 'per_page' => $page->perPage(), 'total' => $page->total(),
             ],
         ]);
+    }
+
+    public function purposes(Request $request): JsonResponse
+    {
+        $data = $this->optionFilters($request);
+        $query = ProductPurpose::query();
+        if (($term = trim($data['search'] ?? '')) !== '') $query->where(fn ($q) => $q->where('name', 'like', '%'.$term.'%')->orWhereJsonContains('aliases', $term));
+
+        return ProductPurposeResource::collection($query->orderBy('name')->orderBy('id')->paginate(30))->response();
+    }
+
+    public function growthStages(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'crop_id' => ['required', 'integer', 'min:1'],
+            'search' => ['nullable', 'string', 'max:255'], 'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $query = CropGrowthStage::query()->where('crop_id', $data['crop_id']);
+        if (($term = trim($data['search'] ?? '')) !== '') $query->where(fn ($q) => $q->where('name', 'like', '%'.$term.'%')->orWhereJsonContains('aliases', $term));
+
+        return CropGrowthStageResource::collection($query->orderBy('sort_order')->orderBy('id')->paginate(30))->response();
     }
 
     private function optionFilters(Request $request): array

@@ -12,12 +12,20 @@ class ProductUsageGuideResource extends JsonResource
         $hasDose = $this->dose_per_ha_min !== null || $this->dose_per_liter_min !== null;
         $hasSource = trim((string) $this->label_source) !== '';
 
+        $contextActive = $this->relationLoaded('crop') && $this->crop?->is_active
+            && $this->relationLoaded('purpose') && $this->purpose?->is_active
+            && $this->relationLoaded('variant') && $this->variant?->relationLoaded('product') && $this->variant?->product?->is_show
+            && ($this->growth_stage_scope !== 'specific' || ($this->relationLoaded('growthStages') && $this->growthStages->contains(fn ($stage) => $stage->is_active)));
+
         return [
             'id' => $this->id,
             'variant_id' => $this->variant_id,
             'crop_id' => $this->crop_id,
-            'purpose' => $this->purpose,
-            'growth_stage' => $this->growth_stage,
+            'purpose_id' => $this->purpose_id,
+            'purpose' => $this->whenLoaded('purpose', fn () => new ProductPurposeResource($this->purpose)),
+            'growth_stage_scope' => $this->growth_stage_scope,
+            'growth_stages' => CropGrowthStageResource::collection($this->whenLoaded('growthStages')),
+            'growth_stage_ids' => $this->whenLoaded('growthStages', fn () => $this->growthStages->pluck('id')->values()->all()),
             'application_method' => $this->application_method,
             'dose_unit' => $this->dose_unit,
             // Giữ chuỗi decimal:6 từ model, giữ nguyên NULL.
@@ -49,7 +57,7 @@ class ProductUsageGuideResource extends JsonResource
                         'is_show' => (bool) $this->variant->product->is_show,
                     ] : null,
             ]),
-            'can_calculate' => (bool) $this->is_active && $hasDose && $hasSource
+            'can_calculate' => (bool) $this->is_active && $contextActive && $hasDose && $hasSource
                 && in_array($this->dose_unit, ['g', 'ml'], true),
         ];
     }
