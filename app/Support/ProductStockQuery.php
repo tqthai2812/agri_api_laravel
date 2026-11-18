@@ -16,7 +16,7 @@ final class ProductStockQuery
     public static function apply(Builder $query): Builder
     {
         if ($query->getQuery()->columns === null) {
-            $query->select('product_packages.*');
+            $query->select("product_packages.*");
         }
 
         return $query->selectRaw(
@@ -47,12 +47,9 @@ final class ProductStockQuery
                         0
                     )
                 ) AS available_to_sell
-            SQL,
-            [
-                'available',
-                now()->toDateString(),
-                'active',
-            ]
+            SQL
+            ,
+            ["available", now()->toDateString(), "active"],
         );
     }
 

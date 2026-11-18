@@ -2,43 +2,53 @@
 
 namespace App\Services;
 
-use App\Models\AiKnowledgeDocument;
-use App\Models\ProductUsageGuide;
-use Illuminate\Database\Eloquent\Builder;
+use App\Services\Ai\AiIndexCoordinator;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class FarmKnowledgeState
 {
+    public function __construct(private AiIndexCoordinator $index) {}
     public function guideIds($ids): void
     {
-        // Chỉ vô hiệu chỉ mục cũ. Job embedding/Qdrant sẽ được triển khai sau.
-        $this->invalidate(AiKnowledgeDocument::query()->whereIn('usage_guide_id', $ids));
+        if (!is_array($ids)) {
+            $ids = $ids->pluck("product_usage_guides.id")->all();
+        }
+        foreach (array_unique($ids) as $id) {
+            $this->index->touch("guide", (int) $id);
+        }
     }
-
     public function crop(int $id): void
     {
-        $this->guideIds(ProductUsageGuide::query()->where('crop_id', $id)->select('id'));
+        $this->guideIds(
+            DB::table("product_usage_guides")
+                ->where("crop_id", $id)
+                ->pluck("id")
+                ->all(),
+        );
     }
-
     public function purpose(int $id): void
     {
-        $this->guideIds(ProductUsageGuide::query()->where('purpose_id', $id)->select('id'));
+        $this->guideIds(
+            DB::table("product_usage_guides")
+                ->where("purpose_id", $id)
+                ->pluck("id")
+                ->all(),
+        );
     }
-
     public function product(int $id): void
     {
-        $this->invalidate(AiKnowledgeDocument::query()->where('product_id', $id));
-        $this->guideIds(ProductUsageGuide::query()->whereHas('variant', fn ($q) => $q->where('product_id', $id))->select('id'));
-    }
-
-    private function invalidate(Builder $query): void
-    {
-        DB::transaction(function () use ($query): void {
-            foreach ($query->orderBy('id')->lockForUpdate()->get() as $document) {
-                // Đổi token để job cũ không thể công bố lại nội dung sau khi nguồn đổi.
-                $document->update(['status' => 'pending', 'indexed_at' => null, 'last_error' => null, 'vector_point_id' => (string) Str::uuid()]);
-            }
-        }, 3);
+        $this->index->touch("product", $id);
+        $this->guideIds(
+            DB::table("product_usage_guides")
+                ->join(
+                    "product_variants",
+                    "product_variants.id",
+                    "=",
+                    "product_usage_guides.variant_id",
+                )
+                ->where("product_variants.product_id", $id)
+                ->pluck("product_usage_guides.id")
+                ->all(),
+        );
     }
 }

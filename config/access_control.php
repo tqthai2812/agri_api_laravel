@@ -14,6 +14,7 @@ return [
         "product-purpose" => "Công dụng sản phẩm",
         "crop-growth-stage" => "Giai đoạn sinh trưởng",
         "usage-guide" => "Hướng dẫn sử dụng vật tư",
+        "ai-knowledge" => "Dữ liệu trợ lý AI",
         "order" => "Đơn hàng",
         "user" => "Người dùng",
         "role" => "Vai trò",
@@ -34,6 +35,7 @@ return [
     ],
     "actions" => [
         "view" => "Xem",
+        "reindex" => "Lập chỉ mục lại",
         "create" => "Tạo",
         "update" => "Cập nhật",
         "delete" => "Xóa",
